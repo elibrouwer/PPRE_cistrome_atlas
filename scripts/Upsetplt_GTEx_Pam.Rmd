@@ -1,0 +1,174 @@
+---
+title: "Ensembl_names_Upsetplt"
+output: html_document
+date: "2025-01-17"
+---
+
+Import libraries
+
+```{r}
+#import pdf in R
+library(pdftools)
+library(tidyverse)
+library(stringr)
+library(biomaRt)
+library(UpSetR)
+library(ComplexUpset)
+library(readxl)
+library(gridExtra)
+library(grid)
+```
+
+Load in Mart, to add ensembl gene ids
+
+```{r}
+mart <- useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", host = 'https://jan2024.archive.ensembl.org')
+```
+
+Add ensembl_ids to Pam_peptide_data
+
+```{r}
+Pam_file_path = "data/Pam_chip/Pam_converted.csv"
+
+Pam_table <- read.csv(Pam_file_path) %>%
+  filter(No != "No") #filter the new columnames from the new page out
+
+Ensembl_list <- getBM(mart = mart,
+           attribute = c('hgnc_symbol', 'ensembl_gene_id' ,'uniprot_gn_id'),
+           filters = 'uniprot_gn_id',
+           values = Pam_table$Uniprot.Accession)
+
+Pam_table %>%
+  left_join(Ensembl_list, by = c("Uniprot.Accession"= "uniprot_gn_id"), relationship = "many-to-many") -> finished_pam_table
+
+```
+
+Add ensembl gene ids to Pamkinase
+
+```{r}
+Pam_kinase_path = "data/Pam_chip/112_Kinases.xlsx"
+Pam_kinase_data <- read_excel(Pam_kinase_path, sheet = "Sheet2") 
+
+Ensembl_list <- getBM(mart = mart,
+                      attribute = c('hgnc_symbol', 'ensembl_gene_id' ,'uniprot_gn_id'),
+                      filters = 'uniprot_gn_id',
+                      values = Pam_kinase_data$`Kinase Uniprot ID`)
+
+Pam_kinase_data %>%
+  left_join(Ensembl_list, by = c("Kinase Uniprot ID"= "uniprot_gn_id"), relationship = "many-to-many") -> Pam_kinase_data_ensembl
+```
+
+Add ensembl_gene_ids to pam peptides full list
+```{r}
+Pam_peptide_final_file_path = "data/Pam_chip/gene_list_pamgene_complete.csv"
+
+Pam_peptide_final_table <- read.csv(Pam_peptide_final_file_path) 
+
+Ensembl_list <- getBM(mart = mart,
+           attribute = c('hgnc_symbol', 'ensembl_gene_id'),
+           filters = 'hgnc_symbol',
+           values = Pam_peptide_final_table$Gene)
+
+Pam_peptide_final_table %>%
+  left_join(Ensembl_list, by = c("Gene"= "hgnc_symbol"), relationship = "many-to-many") -> finished_pam_table_full_list
+
+```
+
+Load in PPRE responsive genes list (33 genes)
+```{r}
+PPRE_responsive_genes_path = "data/PPRE/PPRE_responsive_genes.txt"
+
+PPRE_responsive_genes <- read.delim(PPRE_responsive_genes_path, sep = ",")
+
+PPRE_responsive_genes <- colnames(PPRE_responsive_genes) %>%
+  data.frame()
+
+PPRE_responsive_genes_ensembl <- getBM(mart = mart,
+                      attribute = c('hgnc_symbol', 'ensembl_gene_id' ),
+                      filters = 'hgnc_symbol',
+                      values = PPRE_responsive_genes$.)
+```
+
+Save block
+
+```{r}
+
+write.csv(finished_pam_table, "data/Pam_chip/Pam_with_ensembl.csv", row.names = FALSE )            
+write.csv(Pam_kinase_data_ensembl, "data/Pam_chip/Pam_112_kinases_with_ensembl.csv", row.names = FALSE )            
+write.csv(PPRE_responsive_genes_ensembl, "data/PPRE/PPRE_responsive_genes_ensembl.csv", row.names = FALSE )            
+
+```
+
+Load in all datasets
+
+```{r}
+Pam_peptide_path = "data/Pam_chip/PamGene_kinases.csv"
+Pam_peptide_data <- read.csv(Pam_peptide_path) %>%
+  distinct(hgnc_symbol, .keep_all = TRUE)
+
+Pam_kinase_ensembl_path = "data/Pam_chip/Pam_112_kinases_with_ensembl.csv"
+Pam_kinase_data_ensembl <- read.csv(Pam_kinase_ensembl_path)
+
+PPRE_MA11481_PPREs_path = "data/PPRE/MA11481_PPREs.xlsx"
+PPRE_MA11481_PPREs_data <- read_excel(PPRE_MA11481_PPREs_path, sheet = "Sheet1")
+
+PPRE_MA00651_PPREs_path = "data/PPRE/MA00651_PPREs.xlsx"
+PPRE_MA00651_PPREs_data <- read_excel(PPRE_MA00651_PPREs_path, sheet = "Sheet1")
+```
+
+Make the upsetplots with the pam datasets and the GTEx dataset
+
+```{r}
+upset_list <- list( Pam_kinase = Pam_kinase_data_ensembl$ensembl_gene_id, Pam_peptide = finished_pam_table_full_list$ensembl_gene_id, MA00651 = PPRE_MA00651_PPREs_data$ensembl_gene_id, MA11481 = PPRE_MA11481_PPREs_data$ensembl_gene_id, PPRE_genes = PPRE_responsive_genes_ensembl$ensembl_gene_id)
+
+heado <- fromList(upset_list)
+
+Upsetplt <- ComplexUpset::upset(heado, intersect = c("MA11481","MA00651", "PPRE_genes", "Pam_kinase", "Pam_peptide"), intersections = list(c("MA00651", "Pam_peptide"),                   
+                  c("MA11481", "Pam_peptide"), 
+                  c("MA00651", "Pam_kinase"),                                                                             c("MA11481", "Pam_kinase"),                                                                                         
+c("PPRE_genes", "Pam_kinase"),                                                                                            
+c("MA00651", "MA11481", "Pam_kinase"),                                                                          c("MA11481", "MA00651", "Pam_peptide"),
+c("Pam_kinase", "Pam_peptide")), 
+      sort_intersections = FALSE, 
+      sort_sets = FALSE, set_sizes=(upset_set_size() + ylab('Number of genes')),
+      stripes='white',
+      height_ratio=0.4,
+      width_ratio=0.2,
+      wrap = TRUE) + theme(axis.title.x = element_text("Group"))
+    
+Upsetplt
+```
+
+Save upsetplt
+
+```{r}
+pdf("data/Pam_chip/Pam_upsetplt.pdf", width = 15)
+Upsetplt
+dev.off()
+
+```
+
+```{r}
+genelist <- data.frame(Gene = Pam_peptide_final_table$Gene)
+
+genelist %>%
+  rbind(data.frame(Gene = Pam_kinase_data$`Kinase Name`)) %>%
+  mutate(Pam_kinase = if_else(Gene %in% Pam_kinase_data$`Kinase Name`, "1", "0"),
+         Pam_Peptide = if_else(Gene %in% Pam_peptide_final_table$Gene, "1", "0"),
+         Identified_PPREs = if_else(Gene %in% PPRE_responsive_genes_ensembl$hgnc_symbol, "1", "0"),
+         Motif_MA0065.1 = if_else(Gene %in% PPRE_MA00651_PPREs_data$gene_name, "1", "0"),
+         Motif_MA1148.1 = if_else(Gene %in% PPRE_MA11481_PPREs_data$gene_name, "1", "0")) -> Summary_Pam_gene_table 
+
+pdf("data/Pam_chip/Summary_Pam_gene_table.pdf")
+
+# Convert the data frame to a table in the PDF
+a <- tableGrob(Summary_Pam_gene_table)
+grid.draw(a)
+# Close the PDF device
+dev.off()
+graphics.off()
+```
+```{r}
+
+```
+

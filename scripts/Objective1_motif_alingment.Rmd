@@ -1,0 +1,132 @@
+---
+title: "Untitled"
+author: "Eli Brouwer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+First load in libraries and set directoy
+
+```{r setup, include = FALSE}
+library(tools)
+library(DiffLogo)
+library(TFBSTools)
+library(motifStack)
+library(Cairo)
+library(motifStack)
+library(universalmotif)
+```
+
+```{r set-directory}
+hocomoco_motif_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/HOCOMOCO"
+
+jaspar_motif_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/JASPAR"
+```
+
+Load in both jaspar and HOCOMOCO and convert to PFM file structure
+
+```{r load-jaspar}
+jaspar_motifs_lst <- list.files(jaspar_motif_directory)
+for (i in 1:length(jaspar_motifs_lst)){
+  pwm_matrix = getPwmFromPfmOrJasparFile(paste0(jaspar_motif_directory, "/", jaspar_motifs_lst[i]))
+  write.table(pwm_matrix[,-1], file = paste0(jaspar_motif_directory, "/", file_path_sans_ext(jaspar_motifs_lst[i]), ".pwm"), sep = "\t", quote = FALSE, col.names = FALSE)
+}
+```
+
+```{r jaspar-to-pfm}
+#making a pfm list from jaspar
+jaspar_motifs_pfm_lst <-  grep("\\.jaspar$", list.files(jaspar_motif_directory), value = TRUE)
+jaspar_pfm_list <- list()
+for (i in 1:length(jaspar_motifs_pfm_lst)){
+  print(i)
+  jaspar_pfm_list[[jaspar_motifs_pfm_lst[i]]] <- pcm2pfm(importMatrix(paste0(jaspar_motif_directory, "/", jaspar_motifs_pfm_lst[i]), to = "pcm"))[[1]]
+}
+
+```
+
+```{r meme-to-pfm}
+hocomoco_motifs_pfm_lst <-  grep("\\.meme$", list.files(hocomoco_motif_directory), value = TRUE) #import all hocomoco
+hocomoco_pfm_list <- list()
+for (i in 1:length(jaspar_motifs_pfm_lst)){
+  print(i)
+  hocomoco_pfm_list[[jaspar_motifs_pfm_lst[i]]] <- importMatrix(paste0(hocomoco_motif_directory, "/", hocomoco_motifs_pfm_lst[i]))[[1]]
+}
+```
+
+setting a basic PPRE motif
+
+```{r}
+PPRE_mat <- matrix(c(
+  1,1,1,0,0,1,0,0,0,0,1,1,1,0,0,0,0,1,  # A
+  0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,  # C
+  0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,  # G
+  0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0   # T
+), nrow=4, byrow=TRUE)
+
+rownames(PPRE_mat) <- c("A", "C", "G", "T")
+
+ppre_motif <- new("pfm", mat=PPRE_mat, name="PPRE motif")
+plotMotifLogoStack(list(ppre_motif), fontsize = 2, yaxis = FALSE, ylab = "", font = 'Arial')
+```
+
+```{r convert_pfm-to-PPM}
+pfm_list <- c(hocomoco_pfm_list,jaspar_pfm_list)
+pfm_list <- c(pfm_list, ppre_motif)
+meme_list <- list()
+annotation_file <- list()
+for (i in 1:length(pfm_list)){
+  meme_list[[i]] <- convert_type(motifs =pfm_list[[i]] ,type = 'PPM')
+  annotation_file[[i]] <- meme_list[[i]]$name
+}
+```
+
+Motif alignment of all the motifs In a desired order
+
+```{r motif-alignment}
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/aligned_motifs.pdf_threshold0.5.pd", height = 15)
+aligned_motifs <- DNAmotifAlignment(pfm_list, threshold = 0.5, minimalConsensus = 6)
+motif_names <- sapply(aligned_motifs, function(m) m@name)
+desired_order <- c("PPRE motif", 
+                   "MA1148.1\tPPARA::RXRA", 
+                   "MA1148.2\tPPARA::RXRA", 
+                   "MA0065.1\tPPARG::RXRA", 
+                   "PPARA.H13CORE.0.P.B", 
+                   "PPARA.H13CORE.1.P.B", 
+                   "PPARD.H13CORE.0.PSM.A", 
+                   "MA1550.1\tPPARD",
+                   "MA1550.2\tPPARD", 
+                   "PPARG.H13CORE.0.P.B",
+                   "PPARG.H13CORE.1.P.B", 
+                   "MA0066.1\tPPARG",
+                   "MA0066.2\tPPARG", 
+                   "RXRA.H13CORE.0.PS.A",
+                   "RXRA.H13CORE.1.S.C",
+                   "RXRA.H13CORE.2.SM.B",
+                   "RXRA.H13CORE.3.P.B",
+                   "RXRB.H13CORE.0.P.C",
+                   "RXRB.H13CORE.1.SM.B",
+                   "MA0855.1\tRXRB",
+                   "MA1555.1\tRXRB(RC)",
+                   "MA0856.1\tRXRG",
+                   "MA1556.1\tRXRG")
+indices <- match(desired_order, motif_names)
+aligned_motifs_order <- rev(aligned_motifs[indices])
+plotMotifLogoStack(aligned_motifs_order, fontsize = 2, yaxis = FALSE, ylab = "", font = 'Arial')
+dev.off()
+```
+
+```{r plot-alignment, fig.width=20, fig.height=30}
+plotMotifLogoStack(aligned_motifs_order, fontsize = 4, yaxis = FALSE, ylab = "", font = 'Arial')
+```
+
+# Covert to meme used as a input for FIMO
+
+```{r pfm-to-meme-FIMO}
+sapply(aligned_motifs, function(m) m@name)
+write_meme(meme_list[1:4], "data/PPAR_RXR_motifs_Hocomoco_Jaspar/RXR_PPAR_combined_files_1_4.meme" ,overwrite = TRUE)
+write_meme(meme_list[5:8], "data/PPAR_RXR_motifs_Hocomoco_Jaspar/RXR_PPAR_combined_files_5_8.meme" ,overwrite = TRUE)
+write_meme(meme_list[9:12], "data/PPAR_RXR_motifs_Hocomoco_Jaspar/RXR_PPAR_combined_files_9_12.meme" ,overwrite = TRUE)
+write_meme(meme_list[13:16], "data/PPAR_RXR_motifs_Hocomoco_Jaspar/RXR_PPAR_combined_files_13_16.meme" ,overwrite = TRUE )
+write_meme(meme_list[17:20], "data/PPAR_RXR_motifs_Hocomoco_Jaspar/RXR_PPAR_combined_files_17_20.meme" , overwrite = TRUE)
+write_meme(meme_list[21:22], "data/PPAR_RXR_motifs_Hocomoco_Jaspar/RXR_PPAR_combined_files_21_22.meme" , overwrite = TRUE)
+```

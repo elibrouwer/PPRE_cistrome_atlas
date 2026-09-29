@@ -1,0 +1,374 @@
+---
+title: "GTEx_PamGene"
+output: html_document
+date: "2025-01-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##load required packages
+
+```{r}
+library(anndata)
+library(sceasy)
+library(Seurat)
+library(BPCells)
+library(dplyr)
+library(patchwork)
+library(cowplot)
+library(RColorBrewer)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(cowplot)
+library(ggplot2)
+library(patchwork)
+library(ggtext)
+library(magrittr)
+library(stringr)
+library(ggVennDiagram)
+library(readxl)
+library(gplots)
+#library(EnhancedVolcano)
+library(ComplexUpset)
+library(tidyr)
+```
+
+## Load GTEx datasets
+
+Use write_matrix when you first run the code, once the matrix dir is already created, do not use
+
+```{r}
+GTEX_file = "data/GTEX_single_nuclear_data/GTEx_8_tissues_snRNAseq_atlas_071421.public_obs.h5ad"
+GTEX_metadata_path = "data/GTEX_single_nuclear_data/GTEx_8_metadata.csv"
+GTEX_genes = "data/GTEX_single_nuclear_data/GTEx_8_genes.csv"
+GTEX_metadata <- read.csv(GTEX_metadata_path)
+GTEX_genes <- read.csv(GTEX_genes)
+ 
+
+parse.data <- open_matrix_anndata_hdf5(GTEX_file)
+
+#write_matrix_dir(mat = parse.data, dir = "data/GTEX_single_nuclear_data/GTEx_8_tissues_parsed")
+
+GTEX_mat <- open_matrix_dir(dir = "data/GTEX_single_nuclear_data/GTEx_8_tissues_parsed")
+
+```
+
+## Load cultured fibroblast dataset
+
+```{r}
+fibroblast_sample1 <- read.csv("data/Cultered_fibroblast/GSM8157769_HFF-50-CTR1.csv")
+fibroblast_sample2 <- read.csv("data/Cultered_fibroblast/GSM8157770_HFF-50-CTR2.csv")
+
+
+combined_fibroblast <- fibroblast_sample1 %>%
+  left_join(fibroblast_sample2, keep = FALSE) 
+
+
+rownames(combined_fibroblast) = combined_fibroblast$X
+combined_fibroblast %<>%
+  dplyr::select(-c(X, X.1))
+```
+
+#Next we convert the fibroblast data to log(10k + 1), this is the same as GTEx
+
+```{r}
+library_sizes <- colSums(combined_fibroblast)
+tp10k <- t(t(combined_fibroblast) / library_sizes) * 10000
+tp10k_1 <- tp10k + 1
+
+log10k_1 <- log10(tp10k_1)
+```
+
+## Create a seurat object, for both fibroblasts as GTEx
+
+GTEx first
+
+```{r}
+GTEX_object <- CreateSeuratObject(GTEX_mat, meta.data = GTEX_metadata)
+raw_counts <- GetAssayData(object = GTEX_object, layer = "counts")
+matrix <- as.matrix(raw_counts)
+
+cardiac_cells <- GTEX_object@meta.data[grepl("Heart", GTEX_object@meta.data$Tissue.Site.Detail, ignore.case = TRUE), ]
+skin_uv_cells <- GTEX_object@meta.data[grepl("skin", GTEX_object@meta.data$Tissue.Site.Detail, ignore.case = TRUE), ] %>%
+  filter(Broad.cell.type == "Fibroblast")
+
+subset_df <- rbind(cardiac_cells, skin_uv_cells) %>%
+  distinct(X) #remove duplicates
+
+GTEX_Seurat_subset <- subset(GTEX_object, cells = rownames(subset_df))
+GTEX_Seurat_subset@assays$RNA@layers[["counts"]] <- as(GTEX_Seurat_subset@assays$RNA@layers[["counts"]], "dgCMatrix")
+
+GTEX_Seurat_subset@meta.data %<>%
+  mutate(Broad.cell.type = if_else(
+    str_starts(Tissue.Site.Detail, "Skin"),
+    str_c(Broad.cell.type, "_Skin"),
+    Broad.cell.type))
+```
+
+Clutured fibroblasts
+
+```{r}
+fibroblast_seurat <- CreateSeuratObject(log10k_1)
+fibroblast_seurat <- NormalizeData(fibroblast_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+fibroblast_seurat <- ScaleData(fibroblast_seurat)
+```
+
+## Merge Seuratobjects
+
+```{r}
+fibro_gtex_seurat <- merge(GTEX_Seurat_subset, fibroblast_seurat, merge.data = TRUE)
+
+fibro_gtex_seurat@meta.data %<>%
+  mutate(Broad.cell.type = replace_na(Broad.cell.type, "Fibroblasts_cultered"))
+
+fibro_gtex_seurat <- JoinLayers(fibro_gtex_seurat, layers= "counts")
+```
+
+## Create expression heatmap
+
+```{r}
+finished_pam_table <- read.csv("data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/Pam_with_ensembl.csv")
+Pam_kinase_data <- read.csv("data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/Pam_112_kinases_with_ensembl.csv")
+
+Combined_pam_pept_kin <- finished_pam_table %>%
+  left_join(Pam_kinase_data, by = c("hgnc_symbol" = "Kinase.Name")) %>%
+  filter(!is.na(`Kinase.Uniprot.ID`)) #overlapping genes between peptides and kinases
+
+bold_labels <- function(labels) {
+  sapply(labels, function(label) {
+    if (label %in% Combined_pam_pept_kin$hgnc_symbol) {
+      paste0("**", label, "**") # Add bold markdown syntax
+    } else {
+      label
+    }
+  })
+}
+
+heatmap_GTEX_Fib_pam_peptides <- SCpubr::do_ExpressionHeatmap(
+  fibro_gtex_seurat,
+  slot = 'counts',
+  features = finished_pam_table$hgnc_symbol,
+  axis.text.x.angle = 90,
+  group.by = c("Broad.cell.type"),
+  legend.position = "none",
+  groups.order = list( Broad.cell.type = sort(levels(factor(fibro_gtex_seurat@meta.data$Broad.cell.type)), decreasing = TRUE)),
+  min.cutoff = 0,
+  diverging.palette = "RdYlBu",
+  use_viridis = FALSE)
+
+
+heatmap_GTEX_Fib_pam_peptides <- heatmap_GTEX_Fib_pam_peptides + scale_fill_gradientn(
+  colors = colorRampPalette(c("black", "lightblue", "darkblue"))(100),
+  values = c(0, 0.001, 1),       # Adjust distribution
+  limits = c(0, 3)
+) + labs(title = "Expression of Pam-peptides in GTEx snRNAseq", y = "Cell type", x = "Pam gene petides") + scale_x_discrete(labels = bold_labels)  + theme(axis.title.x = element_text(size = 14, face = "bold", hjust = 0.5), axis.text.x = ggtext::element_markdown(size = 12), plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+
+heatmap_GTEX_Fib_pam_kinase <- SCpubr::do_ExpressionHeatmap(
+  fibro_gtex_seurat,
+  slot = 'counts',
+  features = Pam_kinase_data$`Kinase.Name`,
+  axis.text.x.angle = 90,
+  group.by = c("Broad.cell.type"),
+  groups.order = list( Broad.cell.type = sort(levels(factor(fibro_gtex_seurat@meta.data$Broad.cell.type)), decreasing = TRUE)),
+  min.cutoff = 0,
+  diverging.palette = "RdYlBu",
+  flip = FALSE,
+  use_viridis = FALSE)
+
+
+heatmap_GTEX_Fib_pam_kinase <- heatmap_GTEX_Fib_pam_kinase + scale_fill_gradientn(
+  colors = colorRampPalette(c("black", "lightblue", "darkblue"))(100),
+  values = c(0, 0.001, 1),       # Adjust distribution
+  limits = c(0, 3)
+) + labs(title = "Expression of in silico calculated Pam Kinases in Gtex snRNAseq n = 112", y = "Cell type", x = "Pam gene kinase")  + scale_x_discrete(labels = bold_labels) +theme(axis.title.x = element_text(size = 14, face = "bold", hjust = 0.5), axis.text.x = ggtext::element_markdown(size = 12), plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+heatmap_GTEX_Fib_pam_kinase
+```
+
+```{r}
+"Broad.cell.type" %in% colnames(fibro_gtex_seurat@meta.data)
+
+# Check number of kinase genes in your table
+length(Pam_kinase_data$Kinase.Name)
+
+# Remove NA and duplicates
+kinase_features <- Pam_kinase_data$Kinase.Name
+kinase_features <- unique(na.omit(kinase_features))
+
+# Check overlap with Seurat object
+sum(kinase_features %in% rownames(fibro_gtex_seurat))
+kinase_features[kinase_features %in% rownames(fibro_gtex_seurat)][1:20]
+```
+
+
+
+
+```{r}
+library(pheatmap)
+Idents(fibro_gtex_seurat) <- "Broad.cell.type"
+fibro_gtex_matrix_average <- AverageExpression(fibro_gtex_seurat, features = finished_pam_table$hgnc_symbol,  slot = 'counts') 
+
+
+
+# Define color gradient similar to the original
+color_palette <- colorRampPalette(c("black", "lightblue", "darkblue"))(100)
+# Generate heatmap with hierarchical clustering
+Heatmap <- pheatmap(t(fibro_gtex_matrix_average$RNA), 
+         color = color_palette, 
+         breaks =  c(
+  seq(0, 0.001, length.out = 50),  # Negative values to center
+  seq(0.00101, 3, length.out = 51)   # Center to max
+),
+         cluster_rows = FALSE, 
+         cluster_cols = TRUE, 
+clustering_distance_cols = "manhattan" , 
+clustering_method = "average",
+cutree_cols = 4,
+         legend = TRUE,
+scale = "none",
+         fontsize_row = 10,
+         fontsize_col = 10,
+         main = "Expression of Pam-peptides in GTEx snRNAseq")
+
+
+install.packages("gplotify")
+library(ggplotify)
+```
+```{r}
+
+```
+
+```{r}
+Pam_peptide_final_file_path = "data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/gene_list_pamgene_complete.csv"
+
+Pam_peptide_final_table <- read.csv(Pam_peptide_final_file_path) 
+
+mart <- useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror = 'useast')
+Ensembl_list <- getBM(mart = mart,
+           attribute = c('hgnc_symbol', 'ensembl_gene_id'),
+           filters = 'hgnc_symbol',
+           values = Pam_peptide_final_table$Gene)
+
+Pam_peptide_final_table %>%
+  left_join(Ensembl_list, by = c("Gene"= "hgnc_symbol"), relationship = "many-to-many") -> finished_pam_table_full_list
+```
+
+
+```{r}
+heatmap_GTEX_Fib_pam_final_peptides <- SCpubr::do_ExpressionHeatmap(
+  fibro_gtex_seurat,
+  slot = 'counts',
+  features = finished_pam_table_full_list$Gene,
+  axis.text.x.angle = 90,
+  group.by = c("Broad.cell.type"),
+  legend.position = "none",
+  groups.order = list( Broad.cell.type = sort(levels(factor(fibro_gtex_seurat@meta.data$Broad.cell.type)), decreasing = TRUE)),
+  min.cutoff = 0,
+  diverging.palette = "RdYlBu",
+  flip = FALSE,
+  use_viridis = FALSE)
+
+
+heatmap_GTEX_Fib_pam_final_peptides <- heatmap_GTEX_Fib_pam_final_peptides + scale_fill_gradientn(
+  colors = colorRampPalette(c("black", "lightblue", "darkblue"))(100),
+  values = c(0, 0.001, 1),       # Adjust distribution
+  limits = c(0, 3)
+) + labs(title = "Expression of Pam Peptides in GTEx snRNAseq n = 176", y = "Cell type", x = "Pam gene petides") + scale_x_discrete(labels = bold_labels)  + theme(axis.title.x = element_text(size = 14, face = "bold", hjust = 0.5), axis.text.x = ggtext::element_markdown(size = 12), plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+heatmap_GTEX_Fib_pam_final_peptides
+```
+```{r}
+Pam_peptide_2026_pth <- "data/PamGene_peptides_260226.xlsx"
+
+Pam_peptide_2026 <- read_excel(Pam_peptide_2026_pth)
+```
+```{r}
+heatmap_GTEX_Fib_pam_final_peptides_2026 <- SCpubr::do_ExpressionHeatmap(
+  fibro_gtex_seurat,
+  slot = 'counts',
+  features = Pam_peptide_2026$`HGNC symbol`,
+  axis.text.x.angle = 90,
+  group.by = c("Broad.cell.type"),
+  legend.position = "none",
+  groups.order = list( Broad.cell.type = sort(levels(factor(fibro_gtex_seurat@meta.data$Broad.cell.type)), decreasing = TRUE)),
+  min.cutoff = 0,
+  diverging.palette = "RdYlBu",
+  flip = FALSE,
+  use_viridis = FALSE)
+
+
+heatmap_GTEX_Fib_pam_final_peptides_2026 <- heatmap_GTEX_Fib_pam_final_peptides_2026 + scale_fill_gradientn(
+  colors = colorRampPalette(c("black", "lightblue", "darkblue"))(100),
+  values = c(0, 0.001, 1),       # Adjust distribution
+  limits = c(0, 3)
+) + labs(title = "Expression of Pam Peptides (2026) in GTEx snRNAseq n = 121", y = "Cell type", x = "Pam gene petides") + scale_x_discrete(labels = bold_labels)  + theme(axis.title.x = element_text(size = 14, face = "bold", hjust = 0.5), axis.text.x = ggtext::element_markdown(size = 12), plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+heatmap_GTEX_Fib_pam_final_peptides_2026
+
+#NA, H2BC3, H3C13, H3C15, H3C14
+```
+
+Save heatmap
+
+```{r}
+pdf("data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/Pam_heatmap_GTEX_Fib_combined_newscale1.pdf", height = 15, width = 30)
+heatmap_arranged <- wrap_plots(patchworkGrob(heatmap_GTEX_Fib_pam_final_peptides) , patchworkGrob(heatmap_GTEX_Fib_pam_kinase), nrow=2)
+plot(heatmap_arranged)
+dev.off()
+
+```
+```{r}
+pdf("data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/Pam_heatmap_2026_GTEX_Fib_combined.pdf", height = 15, width = 30)
+heatmap_arranged <- wrap_plots(patchworkGrob(heatmap_GTEX_Fib_pam_final_peptides_2026) , patchworkGrob(heatmap_GTEX_Fib_pam_kinase), nrow=2)
+plot(heatmap_arranged)
+dev.off()
+```
+
+```{r}
+pdf("data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/Pam_heatmap_2026_GTEX_Fib_kinases.pdf", height = 15, width = 30)
+heatmap_arranged <- wrap_plots(patchworkGrob(heatmap_GTEX_Fib_pam_final_peptides_2026) , patchworkGrob(heatmap_GTEX_Fib_pam_final_peptides), nrow=2)
+plot(heatmap_arranged)
+dev.off()
+```
+
+```{r}
+png("data/Pam_chip/Pam_heatmap_GTEX_Fib_combined_newscale.png", height = 100, width = 200)
+heatmap_arranged <- wrap_plots(heatmap_GTEX_Fib_pam_final_peptides , heatmap_GTEX_Fib_pam_kinase, nrow=2)
+plot(heatmap_arranged)
+dev.off()
+dev.list()
+print(heatmap_GTEX_Fib_pam_final_peptides)
+class(heatmap_GTEX_Fib_pam_kinase)
+ggsave("data/Pam_chip/Pam_heatmap_GTEX_Fib_combined_newscale1.pdf", 
+       plot = heatmap_arranged, 
+       height = 15, width = 30, device = "pdf")
+```
+## PCAplt
+to control of the dataset of the cultured fibroblast arent real outliers
+```{r}
+fibro_gtex_seurat %<>%
+  NormalizeData() %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>%
+  ScaleData()
+
+
+fibro_gtex_seurat <- RunPCA(fibro_gtex_seurat, features = VariableFeatures(object = fibro_gtex_seurat), dims = 1:10)
+
+fibro_gtex_seurat %<>%
+  FindNeighbors( dims = 1:10) %>%
+  FindClusters( resolution = 0.5) %>%
+  RunUMAP( dims = 1:10)
+
+cells_to_highlight <- WhichCells(fibro_gtex_seurat, expression = Broad.cell.type == "Fibroblasts_cultered")
+
+DimPlot(fibro_gtex_seurat, reduction = "pca", group.by = "Broad.cell.type")
+DimPlot(fibro_gtex_seurat, reduction = "pca", group.by = "Broad.cell.type", cells.highlight  = cells_to_highlight)
+DimPlot(fibro_gtex_seurat, reduction = "umap", group.by = "Broad.cell.type")
+```
+
+
+

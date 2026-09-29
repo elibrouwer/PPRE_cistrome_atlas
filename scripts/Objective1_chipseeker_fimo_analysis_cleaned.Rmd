@@ -1,0 +1,1826 @@
+---
+title: "FIMO Motif Analysis with ChIPseeker"
+author: "Eli Brouwer"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+This file is used to analyse the FIMO files, for objective 1. In this File the FIMO files are annotated with ChIPseeker. And overlapped with GTEx, to create the final genelist.
+
+```{r setup, include=FALSE}
+#load in libraries
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(pacman)
+p_load(tidyr, ChIPseeker, dplyr, org.Hs.eg.db, TxDb.Hsapiens.UCSC.hg38.knownGene, gt, writexl, pheatmap, stringr, GenomicRanges, BSgenome.Hsapiens.UCSC.hg38, ggvenn, magrittr, rtracklayer, clusterProfiler, tibble, ggpubr, ggrepel, forcats, patchwork, grid, plotly)
+```
+
+# Data Input
+
+```{r load-data}
+# Set file paths
+fimo_file_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/FIMO"
+fimo_file_lst <- list.files(fimo_file_directory)
+motif_annotation_path <- "data/annot_file.txt"
+chip_file_directory <- "data/ChIPseeker_output"
+snrna_file_path <- "data/GTEx_non_zeros_prt_coding.csv"
+```
+
+# Annotate Motifs with ChIPseeker
+
+The motifs are loaded in in a GRanges object.
+
+```{r annotate-fimo, verbose = FALSE, message = FALSE}
+# Function to process and annotate FIMO files
+fimo_analyzer <- function(fimo_file_path, txdb){
+  fimo_file <- read.delim(fimo_file_path) %>% filter(!is.na(start))
+  gr_fimo <- GRanges(
+    seqnames = fimo_file$sequence_name,
+    ranges = IRanges(start = fimo_file$start, end = fimo_file$stop),
+    strand = fimo_file$strand,
+    score = fimo_file$score,
+    pvalue = fimo_file$p.value,
+    qvalue = fimo_file$q.value,
+    motif_id = fimo_file$motif_id, 
+    motif_seq = fimo_file$matched_sequence
+  )
+  seqlevelsStyle(gr_fimo) <- "UCSC"
+  gr_fimo_splt <- split(gr_fimo, mcols(gr_fimo)$motif_id)
+  summary_list <- list()
+  gr_list <- list()
+
+
+  for (i in seq_along(gr_fimo_splt)){
+    gr_current <- gr_fimo_splt[[i]]
+    gr_list[[length(gr_list) + 1]] <- gr_current
+    #ChIPseeker, specify the search window 3kb up and 1kb down, sameStrand = TRUE
+    peaks <- annotatePeak(gr_current, tssRegion = c(-3000, 1000), TxDb = txdb, 
+                          annoDb = "org.Hs.eg.db", sameStrand = TRUE, verbose = FALSE)
+    
+    peaks_df <- as.data.frame(peaks)
+    #print(peaks)
+    nearby_peaks <- peaks_df[grepl("Promoter", peaks_df$annotation), ] #only keep the genes that are in the promoter
+    
+    #Generate Fimo and chipseeker summary results, per motif
+    summary_list[[length(summary_list) + 1]] <- data.frame(
+      N_peaks = length(gr_current),
+      Min_pvalue = min(gr_current$pvalue),
+      Mean_width = mean(width(gr_current)),
+      Motif_id = gr_current$motif_id[1],
+      Motif_seq = gr_current$motif_seq[1],
+      N_genes = length(nearby_peaks$annotation),
+      Mean_dist_to_TSS = mean(nearby_peaks$distanceToTSS))
+  }
+  return(list(summary = summary_list, granges = gr_list))
+}
+
+# Run annotation
+
+#A list of FIMO files is created and the summary list is stored (which is used for Table S2 and the granges objects are stored in a list
+
+motif_summary_list <- list()
+granges_list <- list()
+for (i in 1:length(fimo_file_lst)){
+  print(paste0("Fimo file: ", i, " / Out of 6"))
+  this_list <- fimo_analyzer(paste0(fimo_file_directory, "/", fimo_file_lst[i]), TxDb.Hsapiens.UCSC.hg38.knownGene)
+  motif_summary_list <- c(motif_summary_list, this_list$summary)
+  granges_list <- c(granges_list, this_list$granges)
+}
+
+granges_fimo <-  do.call(c, granges_list)
+
+print("The results are saved in the granges list")
+```
+
+This code is used to create a bedfile with all the separate FIMO hits
+
+```{r bedfile-fimo, verbose = FALSE, message = FALSE,warning=FALSE}
+granges_all <- GRanges()  # empty GRanges
+for (i in seq_along(fimo_file_lst)) {
+  this_list <- fimo_analyzer(paste0(fimo_file_directory, "/", fimo_file_lst[i]),
+                             TxDb.Hsapiens.UCSC.hg38.knownGene)
+  granges_all <- c(granges_all, do.call(c, this_list$granges))
+}
+
+df <- as.data.frame(granges_all)
+
+PPRE_FIMO_bed <- data.frame(
+  chrom      = df$seqnames,
+  chromStart = df$start - 1,   
+  chromEnd   = df$end,
+  name       = if ("motif_id"  %in% names(df)) df$motif_id  else ".",
+  score      = if ("score" %in% names(df)) df$score else 0,
+  strand     = as.character(df$strand),
+  check.names = FALSE
+) #makes a bedfile of all FIMO hits. 
+
+write.table(PPRE_FIMO_bed, "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Bedfiles_output/PPRE_FIMO_hits_21_motifs.bed",
+            sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+```
+
+# Motif Overlap Heatmap
+
+the overlap between two pairs of motifs is plotted in a heatmap
+
+```{r overlap-heatmap}
+#this function calculates the overlap
+get_overlap_percent <- function(gr1, gr2, minoverlap) {
+  hits <- findOverlaps(gr1, gr2, minoverlap = minoverlap)
+  unique_queries <- length(unique(queryHits(hits)))
+  
+  # % of gr1 that overlaps gr2
+  percent <- (unique_queries / length(gr1)) * 100
+  return(percent)
+}
+
+n <- length(granges_list)
+set_names <- names(granges_list)
+motif_names <- sapply(granges_list, function(gr) as.character(mcols(gr)$motif_id[1]))
+names(granges_list) <- motif_names
+overlap_matrix <- matrix(NA, nrow = n, ncol = n, dimnames = list(motif_names, motif_names))
+
+for (i in 1:n) {
+  for (j in 1:n) {
+    if (i != j) {
+      overlap_matrix[i, j] <- get_overlap_percent(granges_list[[i]], granges_list[[j]], minoverlap = 5)
+    } else {
+      overlap_matrix[i, j] <- 100 #when the pair of the motif combinations is the same, a value of 100 is given
+    }
+  }
+}
+
+overlap_df <- as.data.frame(overlap_matrix)
+overlap_df <- cbind(Motif = rownames(overlap_df), overlap_df)
+
+motif_class <- c(
+  "MA1148.1" = "Full-PPARA::RXRA","MA1148.2" = "Full-PPARA::RXRA", "MA0065.1" = "Full-PPARG::RXRA",
+  "PPARA.H13CORE.0.P.B" = "Half-PPARA", "PPARA.H13CORE.1.P.B" = "Half-PPARA", "PPARD.H13CORE.0.PSM.A" = "Half-PPARD", 
+  "MA1550.1" = "Half-PPARD","MA1550.2" = "Half-PPARD", "PPARG.H13CORE.0.P.B" = "Half-PPARG", 
+  "PPARG.H13CORE.1.P.B" = "Half-PPARG", "MA0066.1" = "Half-PPARG", "MA0066.2" = "Half-PPARG",
+  "RXRA.H13CORE.0.PS.A" = "Half-RXRA", "RXRA.H13CORE.1.S.C" = "Half-RXRA", "RXRA.H13CORE.2.SM.B" = "Half-RXRA", 
+  "RXRA.H13CORE.3.P.B" = "Half-RXRA", "RXRB.H13CORE.0.P.C" = "Half-RXRB", "RXRB.H13CORE.1.SM.B" = "Half-RXRB",
+  "MA0855.1" = "Half-RXRB", "MA1555.1" = "Half-RXRB", "MA0856.1" = "Half-RXRG", "MA1556.1" = "Half-RXRG") #adding a annotation col of motif-type 
+
+motif_groups <- data.frame(Motif = rownames(overlap_df))
+motif_groups$Motif_type <- motif_class[motif_groups$Motif] #create a annotation list
+rownames(motif_groups) <- motif_groups$Motif
+motif_groups %<>%
+  dplyr::mutate(Motif_db = case_when(
+    grepl("H13CORE", Motif, ignore.case = TRUE) ~ "HOCOMOCO",
+    grepl("^MA", Motif, ignore.case = TRUE) ~ "JASPAR",
+    TRUE ~ "other")) #adds an annotation row, with motif db, jaspar and hocomoco
+
+rownames(overlap_df) <- overlap_df$Motif
+mat <- as.matrix(overlap_df[, -1])
+mat[is.na(mat)] <- 100 #gives the overlapping pairs an overlap of 100%
+
+pheatmap(round(overlap_matrix, 1), cluster_rows = TRUE, cluster_cols = TRUE)
+```
+
+```{r motif-jaccard-heatmap}
+# ============================================================
+# 1. Base-pair Jaccard function
+# ============================================================
+
+get_jaccard_percent <- function(gr1, gr2) {
+  
+  # Merge overlapping ranges within each motif first
+  gr1_reduced <- reduce(gr1)
+  gr2_reduced <- reduce(gr2)
+  
+  # Shared genomic sequence
+  intersection_ranges <- intersect(gr1_reduced, gr2_reduced)
+  intersection_bp <- sum(width(intersection_ranges))
+  
+  # Total genomic sequence covered by either motif
+  union_ranges <- reduce(c(gr1_reduced, gr2_reduced))
+  union_bp <- sum(width(union_ranges))
+  
+  if (union_bp == 0) {
+    return(NA_real_)
+  }
+  
+  jaccard_percent <- (intersection_bp / union_bp) * 100
+  
+  return(jaccard_percent)
+}
+
+
+# ============================================================
+# 2. Rename GRanges objects using motif IDs
+# ============================================================
+
+motif_names <- vapply(
+  granges_list,
+  function(gr) as.character(mcols(gr)$motif_id[1]),
+  character(1)
+)
+
+names(granges_list) <- motif_names
+
+n <- length(granges_list)
+
+
+# ============================================================
+# 3. Calculate symmetric Jaccard matrix
+# ============================================================
+
+jaccard_matrix <- matrix(
+  NA_real_,
+  nrow = n,
+  ncol = n,
+  dimnames = list(motif_names, motif_names)
+)
+
+for (i in seq_len(n)) {
+  
+  for (j in i:n) {
+    
+    if (i == j) {
+      
+      jaccard_value <- 100
+      
+    } else {
+      
+      jaccard_value <- get_jaccard_percent(
+        granges_list[[i]],
+        granges_list[[j]]
+      )
+    }
+    
+    # Fill both directions because Jaccard is symmetric
+    jaccard_matrix[i, j] <- jaccard_value
+    jaccard_matrix[j, i] <- jaccard_value
+  }
+}
+
+
+# ============================================================
+# 4. Define motif classes
+# ============================================================
+
+motif_class <- c(
+  "MA1148.1" = "Full-PPARA::RXRA",
+  "MA1148.2" = "Full-PPARA::RXRA",
+  "MA0065.1" = "Full-PPARG::RXRA",
+  
+  "PPARA.H13CORE.0.P.B" = "Half-PPARA",
+  "PPARA.H13CORE.1.P.B" = "Half-PPARA",
+  
+  "PPARD.H13CORE.0.PSM.A" = "Half-PPARD",
+  "MA1550.1" = "Half-PPARD",
+  "MA1550.2" = "Half-PPARD",
+  
+  "PPARG.H13CORE.0.P.B" = "Half-PPARG",
+  "PPARG.H13CORE.1.P.B" = "Half-PPARG",
+  "MA0066.1" = "Half-PPARG",
+  "MA0066.2" = "Half-PPARG",
+  
+  "RXRA.H13CORE.0.PS.A" = "Half-RXRA",
+  "RXRA.H13CORE.1.S.C" = "Half-RXRA",
+  "RXRA.H13CORE.2.SM.B" = "Half-RXRA",
+  "RXRA.H13CORE.3.P.B" = "Half-RXRA",
+  
+  "RXRB.H13CORE.0.P.C" = "Half-RXRB",
+  "RXRB.H13CORE.1.SM.B" = "Half-RXRB",
+  "MA0855.1" = "Half-RXRB",
+  "MA1555.1" = "Half-RXRB",
+  
+  "MA0856.1" = "Half-RXRG",
+  "MA1556.1" = "Half-RXRG"
+)
+
+
+# ============================================================
+# 5. Create annotations
+# ============================================================
+
+motif_groups <- data.frame(
+  Motif = rownames(jaccard_matrix),
+  stringsAsFactors = FALSE
+)
+
+motif_groups$Motif_type <- unname(
+  motif_class[motif_groups$Motif]
+)
+
+motif_groups$Motif_db <- case_when(
+  grepl("H13CORE", motif_groups$Motif, ignore.case = TRUE) ~ "HOCOMOCO",
+  grepl("^MA", motif_groups$Motif, ignore.case = TRUE) ~ "JASPAR",
+  TRUE ~ "Other"
+)
+
+rownames(motif_groups) <- motif_groups$Motif
+
+
+# ============================================================
+# 6. Set motif order
+# ============================================================
+
+motif_type_order <- c(
+  "Full-PPARA::RXRA",
+  "Full-PPARG::RXRA",
+  "Half-PPARA",
+  "Half-PPARD",
+  "Half-PPARG",
+  "Half-RXRA",
+  "Half-RXRB",
+  "Half-RXRG"
+)
+
+motif_groups$Motif_type <- factor(
+  motif_groups$Motif_type,
+  levels = motif_type_order
+)
+
+motif_groups$Motif_db <- factor(
+  motif_groups$Motif_db,
+  levels = c("HOCOMOCO", "JASPAR", "Other")
+)
+
+ordered_motifs <- motif_groups %>%
+  arrange(Motif_type, Motif_db, Motif) %>%
+  pull(Motif)
+
+ordered_motifs <- ordered_motifs[
+  ordered_motifs %in% rownames(jaccard_matrix)
+]
+
+
+# ============================================================
+# 7. Reorder matrix and annotations
+# ============================================================
+
+mat <- round(
+  jaccard_matrix[ordered_motifs, ordered_motifs],
+  1
+)
+
+annotation_df <- motif_groups[
+  ordered_motifs,
+  c("Motif_db", "Motif_type"),
+  drop = FALSE
+]
+
+colnames(annotation_df) <- c(
+  "Motif database",
+  "Motif type"
+)
+
+
+# ============================================================
+# 8. Keep only lower triangle
+# ============================================================
+
+mat[upper.tri(mat, diag = FALSE)] <- NA
+
+
+# ============================================================
+# 9. Annotation colors
+# ============================================================
+
+annotation_colors <- list(
+  
+  `Motif database` = c(
+    "HOCOMOCO" = "#4C78A8",
+    "JASPAR"   = "#6CC24A",
+    "Other"    = "#BDBDBD"
+  ),
+  
+  `Motif type` = c(
+    "Full-PPARA::RXRA" = "#F28E7F",
+    "Full-PPARG::RXRA" = "#C94C62",
+    
+    "Half-PPARA" = "#D6B82C",
+    "Half-PPARD" = "#8FAF3C",
+    "Half-PPARG" = "#D98F39",
+    
+    "Half-RXRA" = "#3DB7C4",
+    "Half-RXRB" = "#377EB8",
+    "Half-RXRG" = "#59C3A5"
+  )
+)
+
+
+# ============================================================
+# 10. Heatmap colors
+# ============================================================
+
+heatmap_colors <- colorRampPalette(
+  c(
+    "#3B6FB6",
+    "#A7CFE3",
+    "#F7F7D4",
+    "#F6B26B",
+    "#D73027"
+  )
+)(100)
+
+heatmap_breaks <- seq(
+  0,
+  100,
+  length.out = 101
+)
+
+
+# ============================================================
+# 11. Plot triangular Jaccard heatmap
+# ============================================================
+
+heatmap_plot <- pheatmap(
+  mat,
+  
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  
+  annotation_row = annotation_df,
+  annotation_col = annotation_df,
+  annotation_colors = annotation_colors,
+  
+  color = heatmap_colors,
+  breaks = heatmap_breaks,
+  
+  na_col = "white",
+  border_color = NA,
+  
+  fontsize = 8,
+  fontsize_row = 7,
+  fontsize_col = 7,
+  angle_col = 90,
+  
+  main = "Pairwise motif-hit Jaccard overlap (%)",
+  
+  silent = TRUE
+)
+
+
+# ============================================================
+# 12. Save as PDF
+# ============================================================
+
+pdf(
+  file = paste0(
+    "data/",
+    "PPAR_RXR_motifs_Hocomoco_Jaspar/",
+    "Objective1_results/",
+    "motif_jaccard_overlap_triangular.pdf"
+  ),
+  width = 12,
+  height = 10,
+  useDingbats = FALSE
+)
+
+grid.newpage()
+grid.draw(heatmap_plot$gtable)
+
+dev.off()
+
+
+# ============================================================
+# 13. Display in R
+# ============================================================
+
+grid.newpage()
+grid.draw(heatmap_plot$gtable)
+```
+
+```{r motif-heatmap-saveblock}
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/correlation_heatmap.pdf", height =11.7 , width = 12.3)
+
+pheatmap(round(mat, 1), cluster_rows = TRUE, cluster_cols = TRUE, 
+         display_numbers = FALSE, fontsize = 10, annotation_row = motif_groups["Motif_type"], annotation_col =  motif_groups["Motif_db"])
+dev.off()
+
+write_xlsx(overlap_df, path = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/pairwise_comparison_fimo.xlsx")
+```
+
+# Summary Table of FIMO and ChIPseeker results
+
+```{r summary-table}
+motif_summary_df <- do.call(rbind, motif_summary_list) 
+colnames(motif_summary_df) <- c("N_amount", "Min_pvalue", "Mean_width", "Motif_name", "Sequence", "N_amount_genes", "Mean_dist_tss")
+rownames(motif_summary_df) <- motif_summary_df$Motif_name
+
+#Combined table with both chipseeker and FIMO results summary
+FIMO_chipseeker_results <- motif_summary_df %>%
+  left_join(motif_groups, by = c("Motif_name" = "Motif")) %>%
+  mutate(Motif_gene = str_remove(Motif_type, "^(Half-|Full-)")) %>% 
+  dplyr::select(Motif_gene, Motif_name, N_amount, N_amount_genes, Mean_dist_tss, Mean_width) %>%
+  gt(rowname_col = "Motif_name") %>%
+  cols_label(
+    Motif_gene = "Motif gene",
+    N_amount = "Peaks",
+    Mean_width = "Mean Width",
+    N_amount_genes = "Amount of genes",
+    Mean_dist_tss = "Average to TSS"
+  ) %>%
+  grand_summary_rows(
+    columns = c(N_amount, Mean_width,N_amount_genes, Mean_dist_tss  ),
+    fns = list(
+      "Mean (SD)" = ~ sprintf("%.1f (%.1f)", mean(., na.rm = TRUE), sd(., na.rm = TRUE))
+      )
+  ) %>%
+  fmt_number(columns = c("N_amount", "Mean_width", "N_amount_genes", "Mean_dist_tss"), decimals = 0)
+FIMO_chipseeker_results 
+
+gtsave(FIMO_chipseeker_results, "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/motif_results_table.pdf", expand = 2)
+
+```
+
+```{r write-table-xlsx}
+display_df_num <-
+  motif_summary_df %>%
+  left_join(motif_groups, by = c("Motif_name" = "Motif")) %>%
+  mutate(Motif_gene = str_remove(Motif_type, "^(Half-|Full-)")) %>%
+  transmute(
+    `Motif name`      = Motif_name,
+    `Motif gene`      = Motif_gene,
+    `Peaks`           = as.numeric(N_amount),
+    `Amount of genes` = as.numeric(N_amount_genes),
+    `Average to TSS`  = as.numeric(Mean_dist_tss),
+    `Mean Width`      = as.numeric(Mean_width)
+  )
+
+# Compute mean(SD) on numeric columns
+ms <- function(x) sprintf("%.1f (%.1f)", mean(x, na.rm = TRUE), sd(x, na.rm = TRUE))
+sum_row <- tibble(
+  `Motif name`      = "Mean (SD)",
+  `Motif gene`      = "\u2014",
+  `Peaks`           = ms(display_df_num$`Peaks`),
+  `Amount of genes` = ms(display_df_num$`Amount of genes`),
+  `Average to TSS`  = ms(display_df_num$`Average to TSS`),
+  `Mean Width`      = ms(display_df_num$`Mean Width`)
+)
+
+fmt_int <- function(x) formatC(x, format = "d", big.mark = ",")
+fmt_1   <- function(x) formatC(x, format = "f", digits = 1)
+
+display_df_chr <- display_df_num %>%
+  mutate(
+    `Peaks`           = fmt_int(`Peaks`),
+    `Amount of genes` = fmt_int(`Amount of genes`),
+    `Average to TSS`  = paste0(ifelse(`Average to TSS` < 0, "\u2212", ""), fmt_1(abs(`Average to TSS`))),
+    `Mean Width`      = fmt_1(`Mean Width`)
+  )
+
+
+display_df_sum <- bind_rows(display_df_chr, sum_row)
+
+write_xlsx(list("PPRE table" = display_df_sum),
+           path = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/motif_results_table.xlsx")
+
+```
+
+# Expression Overlap with GTEx Cardiomyocyte Genes
+
+```{r gene-overlap}
+# Build the combined gene list from all ChIPseeker output files
+chip_file_directory <- "data/PPAR_RXR_motifs_Hocomoco_Jaspar/ChIPseeker_output"
+chip_file_list <- list.files(chip_file_directory)
+chip_file_list_txt <- chip_file_list[str_ends(chip_file_list, ".txt")]
+
+#for all motifs
+chip_data_list <- list()
+
+for (i in 1:length(chip_file_list_txt)){
+  chiptable <- read.delim(paste0(chip_file_directory, "/", chip_file_list_txt[i]), sep = " ", header = TRUE)
+  chip_data_list[[i]] <- chiptable
+}
+
+chip_all <- do.call(rbind, chip_data_list) #this is a dataframe with all the genes in there
+
+gene_type <- AnnotationDbi::select(
+  org.Hs.eg.db,
+  keys = unique(na.omit(chip_all$ENSEMBL)),
+  keytype = "ENSEMBL",
+  columns = c("ENSEMBL", "GENETYPE")
+)
+
+# Join gene type and keep only protein-coding genes
+chip_all <- chip_all %>%
+  left_join(gene_type, by = "ENSEMBL") %>%
+  filter(GENETYPE == "protein-coding")
+
+overlapping_genes <- chip_all %>%
+  dplyr::select(c(seqnames, motif_id, annotation, 
+                  geneId, transcriptId, ENSEMBL, 
+                  SYMBOL,  pvalue , qvalue, distanceToTSS )) %>%
+  distinct(transcriptId, motif_id, .keep_all = TRUE) %>%
+  add_count(transcriptId, name = "n_motifs") %>%
+  distinct(ENSEMBL, .keep_all = TRUE) %>%
+  dplyr::arrange(desc(n_motifs))
+```
+
+```{r add-GTEX-nozero}
+##add snRNA seq data to overlap the expressed cardiomyocyte genes
+GTEX_snRNA_cardiomyocyte_nonzero <- read.csv("data/GTEX_single_nuclear_data/GTEx_non_zeros_ensembl.csv") %>%
+  left_join(overlapping_genes, by = c( "ensembl_gene_id" ="ENSEMBL"), keep = TRUE) %>%
+  drop_na(c(ensembl_gene_id,ENSEMBL)) -> motif_hits_cardiomyocytes_nonzero 
+
+
+write.csv(motif_hits_cardiomyocytes_nonzero, "data/GTEX_single_nuclear_data/Motifs_GTEX_cm_expressed.csv")
+```
+
+```{r add-GTEX-top20%}
+##add snRNA seq data to overlap the expressed cardiomyocyte genes
+read.csv("data/GTEX_single_nuclear_data/GTEx_top20%_ensembl.csv") %>%
+  left_join(overlapping_genes, by = c( "ensembl_gene_id" ="ENSEMBL"), keep = TRUE) %>%
+  drop_na(c(ensembl_gene_id,ENSEMBL)) -> motif_hits_cardiomyocytes_top20
+
+
+write.csv(motif_hits_cardiomyocytes_top20, "data/GTEX_single_nuclear_data/Motifs_GTEX_cm_expressed_top20.csv")
+```
+
+# Venn Diagram of Gene Sets
+
+```{r venn-diagram}
+#venn_diagram
+expression_cardiomyocytes_nozero <- read.csv( "data/GTEX_single_nuclear_data/GTEx_non_zeros_ensembl.csv" )
+GTEX_genes <- read.csv("data/GTEX_single_nuclear_data/GTEx_8_genes.csv")
+venn_genelist <- list( 'GTEX genes' = unique(GTEX_genes$gene_name), 'Expressed cardiomyocyte genes' = sort(unique(na.omit(expression_cardiomyocytes_nozero$HGNC_gene_name))), 'All Motif PPRE genes' = sort((unique(chip_all$SYMBOL))))
+
+venn_diagram <- ggvenn(
+  venn_genelist,
+  show_percentage = FALSE,
+  fill_color = c("white", "white", "white"),
+  stroke_size = 1,
+  set_name_size = 2.8,
+  text_size = 2.8
+)
+venn_diagram
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/venn_diagram.pdf", width = 8.27/2, 11.69/4)
+venn_diagram
+dev.off()
+```
+
+# Get the overlap between HCM and PLN regions and FIMO peaks
+
+```{r overlap-regions}
+#first load in the differentially expressed peak files
+HCM_differentially_regions <- readxl::read_xlsx("data/PPAR_RXR_motifs_Hocomoco_Jaspar/HCM_differentially_regions.xlsx", sheet = "Supplementary Table 2A")
+grange_HCM_differentially_regions <- GRanges(
+  seqnames = HCM_differentially_regions$`Chromosome number`,
+  ranges = IRanges(start = HCM_differentially_regions$`Region start`, end = HCM_differentially_regions$`Region end`),
+  pvalue = HCM_differentially_regions$`P-adj`,
+  motif_id = "HCM_hearts" ) #Convert the HCM_regions to GRanges
+  
+PLN_differentially_regions <-  readxl::read_xlsx("data/PPAR_RXR_motifs_Hocomoco_Jaspar/PLN_differentially_regions.xlsx", skip = 1) %>%
+  filter(!is.na(`Region start†`))
+
+grange_PLN_differentially_regions <- GRanges(
+  seqnames = PLN_differentially_regions$Chromosome,
+  ranges = IRanges(start = PLN_differentially_regions$`Region start†`, end = PLN_differentially_regions$`Region end†`),
+  pvalue = PLN_differentially_regions$`Adjusted p-value§`,
+  motif_id = "PLN_hearts") #Convert the PLN_regions to GRanges
+
+#this peak data is in hg19 assembly, this is converted to hg38
+#first a chain file is downloaded, this needs to be unzipped
+#chain_url <- "http://hgdownload.cse.ucsc.edu/goldenpath/hg19/liftOver/hg19ToHg38.over.chain.gz"
+#chain_file <- "hg19ToHg38.over.chain.gz"
+#if (!file.exists(chain_file)) {
+#  download.file(chain_url, chain_file)
+#}
+
+chain <- rtracklayer::import.chain("data/PPAR_RXR_motifs_Hocomoco_Jaspar/hg19ToHg38.over.chain")
+
+grange_HCM_differentially_regions_hg38 <- liftOver(grange_HCM_differentially_regions, chain) 
+grange_PLN_differentially_regions_hg38 <- liftOver(grange_PLN_differentially_regions, chain)
+
+overlap_df_regions <- data.frame()
+
+for (i in 1:length(granges_list)){
+  total_hits <- length(granges_list[[i]])
+  overlap_hcm <- findOverlaps(grange_HCM_differentially_regions_hg38, granges_list[[i]], ignore.strand = TRUE, minoverlap = 1)
+  overlap_pln <- findOverlaps(grange_PLN_differentially_regions_hg38, granges_list[[i]], ignore.strand = TRUE, minoverlap = 1)
+  
+  # Add a new row for each motif
+  overlap_df_regions <- rbind(overlap_df_regions, data.frame(
+    motif_id = names(granges_list)[i],
+    total_hits = total_hits,
+    overlap_hcm = length(queryHits(overlap_hcm)),
+    overlap_pln = length(queryHits(overlap_pln))
+  ))
+}
+
+overlap_df_regions %<>%
+  pivot_longer(c("total_hits", "overlap_hcm", "overlap_pln") )
+
+
+Stackplot <- ggplot(overlap_df_regions, aes(x = motif_id, y = value, fill = name)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(
+    values = c("total_hits" = "#4A90E2",       # blue
+               "overlap_pln" = "#50E3C2",      # teal
+               "overlap_hcm" = "#D0021B"),     # red
+    labels = c("total_hits" = "Total Hits",
+               "overlap_pln" = "Overlap PLN",
+               "overlap_hcm" = "Overlap HCM")
+  ) + theme_bw() + scale_y_continuous(expand = c(0, 0))+
+  theme( panel.border = element_blank(), panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.title = element_blank()
+  ) +
+  labs(x = "Motif ID", y = "Amount of FIMO peaks")
+Stackplot
+
+#Calculate overlap percentages for article
+total_hcm <- length(grange_HCM_differentially_regions_hg38)
+total_pln <- length(grange_PLN_differentially_regions_hg38)
+
+overlap_percent_df <- overlap_df_regions %>%
+  pivot_wider(names_from = name, values_from = value, values_fn = list) %>%
+  unnest(cols = c(total_hits, overlap_pln, overlap_hcm)) %>%
+  mutate(
+    percent_overlap_pln = (overlap_pln / total_pln) * 100,
+    percent_overlap_hcm = (overlap_hcm / total_hcm) * 100)
+
+pln_mean <- mean(overlap_percent_df$percent_overlap_pln, na.rm = TRUE)
+pln_sd   <- sd(overlap_percent_df$percent_overlap_pln, na.rm = TRUE)
+
+hcm_mean <- mean(overlap_percent_df$percent_overlap_hcm, na.rm = TRUE)
+hcm_sd   <- sd(overlap_percent_df$percent_overlap_hcm, na.rm = TRUE)
+
+cat(sprintf("PLN-specific H3K4me3 regions overlapping with the FIMO regions: %.2f%% ± %.2f SD\n", pln_mean, pln_sd)) 
+cat(sprintf("HCM-specific H3K27ac regions overlapping with the FIMO regions: %.2f%% ± %.2f SD\n", hcm_mean, hcm_sd))
+```
+
+# Statistics Boxplots
+
+This section explores the distribution of FIMO peak counts and motif widths across motif types, databases, and experimental data sources.
+
+```{r make-scatter_df}
+measuring_method <- tibble::tribble(
+  ~Motif_name,                         ~Data_type_source,                                 ~Data_type_source_simple,
+  "MA1148.1",                          "SMILE-seq",                                       "SMILE-seq",
+  "MA1148.2",                          "SMILE-seq",                                       "SMILE-seq",
+  "MA0065.1",                          "SELEX",                                           "SELEX",
+  "PPARA.H13CORE.0.P.B",              "ChIP-Seq",                                        "ChIP-Seq",
+  "PPARA.H13CORE.1.P.B",              "ChIP-Seq",                                        "ChIP-Seq",
+  "PPARD.H13CORE.0.PSM.A",            "ChIP-Seq + HT-SELEX + Methyl-HT-SELEX",           "SELEX",
+  "MA1550.1",                          "HT-SELEX",                                        "SELEX",
+  "MA1550.2",                          "HT-SELEX",                                        "SELEX",
+  "PPARG.H13CORE.0.P.B",              "ChIP-Seq",                                        "ChIP-Seq",
+  "PPARG.H13CORE.1.P.B",              "ChIP-Seq",                                        "ChIP-Seq",
+  "MA0066.1",                          "SELEX",                                           "SELEX",
+  "MA0066.2",                          "SELEX",                                           "SELEX",
+  "RXRA.H13CORE.0.PS.A",              "ChIP-Seq + HT-SELEX",                             "SELEX",
+  "RXRA.H13CORE.1.S.C",               "HT-SELEX",                                        "SELEX",
+  "RXRA.H13CORE.2.SM.B",              "HT-SELEX + Methyl-HT-SELEX",                      "SELEX",
+  "RXRA.H13CORE.3.P.B",               "ChIP-Seq",                                        "ChIP-Seq",
+  "RXRB.H13CORE.0.P.C",               "ChIP-Seq",                                        "ChIP-Seq",
+  "RXRB.H13CORE.1.SM.B",              "HT-SELEX + Methyl-HT-SELEX",                      "SELEX",
+  "MA0855.1",                          "HT-SELEX",                                        "SELEX",
+  "MA1555.1",                          "HT-SELEX",                                        "SELEX",
+  "MA0856.1",                          "HT-SELEX",                                        "SELEX",
+  "MA1556.1",                          "HT-SELEX",                                        "SELEX"
+)
+#Make scatterplot mean width of motif vs number of peaks
+motif_summary_df %>% 
+  dplyr::select(c(Motif_name, Mean_width, N_amount)) %>%
+  left_join(motif_groups, by = c("Motif_name" = "Motif")) %>%
+  dplyr::mutate(Motif_type_simple = case_when(
+    grepl("^Full", Motif_type, ignore.case = TRUE) ~ "Full-PPAR:RXR",
+    grepl("RXR", Motif_type, ignore.case = TRUE) ~ "Half-RXR",
+    grepl("PPAR", Motif_type, ignore.case = TRUE) ~ "Half-PPAR",
+    TRUE ~ "other")) %>%
+  dplyr::mutate(Motif_db = case_when(
+    grepl("H13CORE", Motif_name, ignore.case = TRUE) ~ "HOCOMOCO",
+    grepl("^MA", Motif_name, ignore.case = TRUE) ~ "JASPAR",
+    TRUE ~ "other")) %>%
+  left_join(measuring_method, by = "Motif_name") %>%
+  mutate(
+    Data_type_source = factor(Data_type_source, levels = c(
+      "ChIP-Seq + HT-SELEX",
+      "ChIP-Seq",
+      "ChIP-Seq + HT-SELEX + Methyl-HT-SELEX",
+      "HT-SELEX",
+      "SELEX",
+      "HT-SELEX + Methyl-HT-SELEX",
+      "SMILE-seq")), #Reorder the names
+    Data_type_source = fct_recode(Data_type_source, 
+                                  "ChIP-Seq \n+ HT-SELEX" = "ChIP-Seq + HT-SELEX",
+                                  "HT-SELEX \n+ Methyl-HT-\nSELEX" = "HT-SELEX + Methyl-HT-SELEX",
+                                  "ChIP-Seq \n+ HT-SELEX \n+ Methyl-HT-SELEX" = "ChIP-Seq + HT-SELEX + Methyl-HT-SELEX"), #Reorder the names --> cause them to be split on newline
+    Motif_type = factor(Motif_type, levels = c("Half-PPARA", 
+                                               "Half-PPARD", 
+                                               "Half-PPARG", 
+                                               "Half-RXRA", 
+                                               "Half-RXRB", 
+                                               "Half-RXRG", 
+                                               "Full-PPARA::RXRA", 
+                                               "Full-PPARG::RXRA")),  #Reordering
+    Motif_type = gsub("^(Half|Full)-", "\\1-\n", Motif_type) #Adding a newline
+  ) %>%
+   mutate(Synthetic_or_Not = case_when(
+    grepl("SMILE-seq", Data_type_source, ignore.case = TRUE) ~ "Synthetic",
+    grepl("SELEX", Data_type_source, ignore.case = TRUE) & !grepl("ChIP", Data_type_source, ignore.case = TRUE) ~ "Synthetic",
+    grepl("ChIP-Seq", Data_type_source, ignore.case = TRUE) & grepl("SELEX", Data_type_source, ignore.case = TRUE) ~ "Mixed",
+    grepl("ChIP-Seq", Data_type_source, ignore.case = TRUE) ~ "Non-synthetic",
+    TRUE ~ "Unknown"
+  )) -> scatter_df
+```
+
+```{r motif-database-plot}
+motif_order <- c(
+  # PPAR half-sites
+  "PPARA",
+  "PPARD",
+  "PPARG",
+
+  # RXR half-sites
+  "RXRA",
+  "RXRB",
+  "RXRG",
+
+  # All possible PPAR:RXR heterodimers
+  "PPARA::RXRA",
+  "PPARA::RXRB",
+  "PPARA::RXRG",
+  "PPARD::RXRA",
+  "PPARD::RXRB",
+  "PPARD::RXRG",
+  "PPARG::RXRA",
+  "PPARG::RXRB",
+  "PPARG::RXRG"
+)
+
+motif_database_plot_df <- scatter_df %>%
+  mutate(
+    # Remove line breaks
+    Motif_type_clean = str_replace_all(
+      as.character(Motif_type),
+      "\n",
+      ""
+    ),
+
+    # Remove Half- and Full- prefixes
+    Motif_group = str_remove(
+      Motif_type_clean,
+      "^(Half-|Full-)"
+    ),
+
+    # Convert double colon to single colon for plotting
+    Motif_group = str_replace_all(
+      Motif_group,
+      "::",
+      "::"
+    )
+  ) %>%
+
+  # Count motifs per motif group and database
+  count(
+    Motif_group,
+    Motif_db,
+    name = "N_motifs"
+  ) %>%
+
+  # Add all missing motif-group/database combinations
+  complete(
+    Motif_group = motif_order,
+    Motif_db = c("JASPAR", "HOCOMOCO"),
+    fill = list(N_motifs = 0)
+  ) %>%
+
+  mutate(
+    Motif_group = factor(
+      Motif_group,
+      levels = motif_order
+    ),
+
+    # JASPAR to the left, HOCOMOCO to the right
+    Plot_value = if_else(
+      Motif_db == "JASPAR",
+      -N_motifs,
+      N_motifs
+    )
+  )
+
+database_plot <- ggplot(
+  motif_database_plot_df,
+  aes(
+    x = Plot_value,
+    y = Motif_group,
+    fill = Motif_db
+  )
+) +
+  geom_col(
+    width = 0.65,
+    position = "identity"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linewidth = 0.4
+  ) +
+  scale_fill_manual(
+    values = c(
+      "JASPAR" = "#377EB8",
+      "HOCOMOCO" = "#FF5A4E"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = seq(-4, 4, by = 1),
+    labels = abs,
+    limits = c(-4, 4),
+    expand = expansion(mult = c(0.03, 0.03))
+  ) +
+  labs(
+    title = "JASPAR and HOCOMOCO",
+    x = "Number of motifs",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    plot.title = element_text(
+      size = 11,
+      hjust = 0
+    ),
+    axis.text.y = element_text(
+      size = 9,
+      colour = "black"
+    ),
+    axis.text.x = element_text(
+      size = 9,
+      colour = "black"
+    ),
+    axis.line.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(
+      colour = "grey85",
+      linewidth = 0.4
+    )
+  )
+
+database_plot
+
+
+database_plot <- ggplot(
+  motif_database_plot_df,
+  aes(
+    x = Plot_value,
+    y = factor(Motif_group, levels = rev(motif_order)),
+    fill = Motif_db
+  )
+) +
+  geom_col(
+    width = 0.65,
+    position = "identity"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linewidth = 0.4
+  ) +
+  scale_fill_manual(
+    values = c(
+      "JASPAR" = "#377EB8",
+      "HOCOMOCO" = "#FF5A4E"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = seq(-4, 4, by = 1),
+    labels = abs,
+    limits = c(-4, 4),
+    expand = expansion(mult = c(0.03, 0.03))
+  ) +
+  labs(
+    title = "JASPAR and HOCOMOCO",
+    x = "Number of motifs",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    axis.text.y = element_text(
+      size = 9,
+      colour = "black"
+    ),
+    axis.line.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(
+      colour = "grey85",
+      linewidth = 0.4
+    )
+  )
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/motif_overview.pdf", width = 8.27/2, height= 11.69/4)
+
+database_plot
+
+dev.off()
+
+ggsave("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/motif_overview.pdf", database_plot, width = 16, height = 4)
+```
+
+Asses nomality Since sample size is 21, we need to check nomality of the continous variables. We do this by the shapiro-wilks test and qq-plot
+
+```{r statistic-nomality}
+print("The shapiro-wilk test result of width is")
+shapiro.test(scatter_df$Mean_width)
+print("So the data is normally distributed")
+
+print("The shapiro-wilk test result of n_amount of peaks is")
+shapiro.test(scatter_df$N_amount)
+print("So the data is normally distributed")
+
+check_normality <- function(df, group_var) {
+  df %>%
+    group_by({{ group_var }}) %>%
+    summarise(
+      n = n(),
+      shapiro_p_width  = if (n() >= 3) shapiro.test(Mean_width)$p.value else NA_real_,
+      shapiro_p_amount = if (n() >= 3) shapiro.test(N_amount)$p.value else NA_real_,
+      .groups = "drop"
+    )
+}
+
+# Run for different grouping variables
+check_normality(scatter_df, Motif_type_simple)
+check_normality(scatter_df, Motif_db)
+check_normality(scatter_df, Data_type_source)
+check_normality(scatter_df, Motif_type)
+
+ggplot(scatter_df, aes(sample = Mean_width)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q plots of Mean_width")
+
+# Q-Q plots for N_amount per group
+ggplot(scatter_df, aes(sample = N_amount)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q plots of N_amount")
+```
+
+# Styled Statistics Boxplots
+
+```{r statistic-boxplots}
+# ============================================================
+# Colour palettes
+# ============================================================
+
+database_colors <- c(
+  "HOCOMOCO" = "#6F6F6F",
+  "JASPAR"   = "#B5B5B5"
+)
+
+motif_family_colors <- c(
+  "PPAR"       = "#4F86D9",
+  "PPAR family" = "#4F86D9",
+  "PPAR (family)" = "#4F86D9",
+  "RXR"        = "#D96C6C",
+  "RXR family" = "#D96C6C",
+  "RXR (family)" = "#D96C6C",
+  "PPAR::RXR"  = "#9A86CC",
+  "PPAR:RXR"   = "#9A86CC"
+)
+
+motif_type_colors <- c(
+  "PPARA"      = "#73A2E6",
+  "PPARD"      = "#8CB4EE",
+  "PPARG"      = "#B7D0F5",
+  "RXRA"       = "#E58C8C",
+  "RXRB"       = "#EDAAAA",
+  "RXRG"       = "#F4C9C9",
+  "PPAR::RXR"  = "#9A86CC",
+  "PPAR:RXR"   = "#9A86CC"
+)
+
+neutral_colors <- c(
+  "#707070",
+  "#A0A0A0",
+  "#C8C8C8",
+  "#E0E0E0"
+)
+
+plot_theme <- theme_classic() +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black"),
+    legend.title = element_blank(),
+    legend.position = "none"
+  )
+
+
+# ============================================================
+# Scatterplot
+# ============================================================
+
+scatter_df_wdth_amount <- ggplot(
+  scatter_df,
+  aes(
+    x = Mean_width,
+    y = N_amount,
+    colour = Motif_type
+  )
+) +
+  geom_point(size = 3) +
+  geom_text_repel(
+    aes(label = Motif_type),
+    size = 3,
+    show.legend = FALSE
+  ) +
+  geom_smooth(
+    aes(group = 1),
+    method = "lm",
+    se = FALSE,
+    colour = "black"
+  ) +
+  stat_cor(
+    aes(group = 1),
+    method = "pearson",
+    label.x.npc = "left",
+    label.y.npc = "top",
+    label.sep = ", ",
+    label.y = max(scatter_df$N_amount, na.rm = TRUE),
+    colour = "black"
+  ) +
+  scale_colour_manual(
+    values = motif_type_colors,
+    na.value = "#7F7F7F"
+  ) +
+  labs(
+    x = "Motif width (bp)",
+    y = "Number of FIMO peaks (genome wide)"
+  ) +
+  plot_theme
+
+scatter_df_wdth_amount
+
+
+# ============================================================
+# Motif database
+# ============================================================
+
+boxplt_db_number <- ggboxplot(
+  scatter_df,
+  x = "Motif_db",
+  y = "N_amount",
+  fill = "Motif_db",
+  color = "Motif_db",
+  palette = database_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "t.test",
+    label.y = max(scatter_df$N_amount, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Motif database",
+    y = "Number of FIMO peaks"
+  ) +
+  plot_theme
+
+boxplt_db_number
+
+
+boxplt_db_wdth <- ggboxplot(
+  scatter_df,
+  x = "Motif_db",
+  y = "Mean_width",
+  fill = "Motif_db",
+  color = "Motif_db",
+  palette = database_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "t.test",
+    label.y = max(scatter_df$Mean_width, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Motif database",
+    y = "Motif width (bp)"
+  ) +
+  plot_theme
+
+boxplt_db_wdth
+
+
+# ============================================================
+# Synthetic versus non-synthetic
+# ============================================================
+
+synthetic_colors <- setNames(
+  neutral_colors[
+    seq_len(length(unique(scatter_df$Synthetic_or_Not)))
+  ],
+  unique(scatter_df$Synthetic_or_Not)
+)
+
+boxplt_synthetic_number <- ggboxplot(
+  scatter_df,
+  x = "Synthetic_or_Not",
+  y = "N_amount",
+  fill = "Synthetic_or_Not",
+  color = "Synthetic_or_Not",
+  palette = synthetic_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$N_amount, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Synthetic",
+    y = "Number of FIMO peaks"
+  ) +
+  plot_theme
+
+boxplt_synthetic_number
+
+
+boxplt_synthetic_wdth <- ggboxplot(
+  scatter_df,
+  x = "Synthetic_or_Not",
+  y = "Mean_width",
+  fill = "Synthetic_or_Not",
+  color = "Synthetic_or_Not",
+  palette = synthetic_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$Mean_width, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Synthetic",
+    y = "Motif width (bp)"
+  ) +
+  plot_theme
+
+boxplt_synthetic_wdth
+
+
+# ============================================================
+# Simplified motif family
+# ============================================================
+
+boxplt_mottyp_simple_number <- ggboxplot(
+  scatter_df,
+  x = "Motif_type_simple",
+  y = "N_amount",
+  fill = "Motif_type_simple",
+  color = "Motif_type_simple",
+  palette = motif_family_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$N_amount, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Motif family",
+    y = "Number of FIMO peaks"
+  ) +
+  plot_theme
+
+boxplt_mottyp_simple_number
+
+
+boxplt_mottyp_simple_wdth <- ggboxplot(
+  scatter_df,
+  x = "Motif_type_simple",
+  y = "Mean_width",
+  fill = "Motif_type_simple",
+  color = "Motif_type_simple",
+  palette = motif_family_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$Mean_width, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Motif family",
+    y = "Motif width (bp)"
+  ) +
+  plot_theme
+
+boxplt_mottyp_simple_wdth
+
+
+# ============================================================
+# Experimental data source
+# ============================================================
+
+data_source_colors <- setNames(
+  grDevices::gray.colors(
+    n = length(unique(scatter_df$Data_type_source)),
+    start = 0.35,
+    end = 0.80
+  ),
+  unique(scatter_df$Data_type_source)
+)
+
+boxplt_dattyp_number <- ggboxplot(
+  scatter_df,
+  x = "Data_type_source",
+  y = "N_amount",
+  fill = "Data_type_source",
+  color = "Data_type_source",
+  palette = data_source_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$N_amount, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Data type",
+    y = "Number of FIMO peaks"
+  ) +
+  plot_theme +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+boxplt_dattyp_number
+
+
+boxplt_dattyp_wdth <- ggboxplot(
+  scatter_df,
+  x = "Data_type_source",
+  y = "Mean_width",
+  fill = "Data_type_source",
+  color = "Data_type_source",
+  palette = data_source_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$Mean_width, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Data type",
+    y = "Motif width (bp)"
+  ) +
+  plot_theme +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+boxplt_dattyp_wdth
+
+
+# ============================================================
+# Detailed motif type
+# ============================================================
+
+boxplt_mottyp_number <- ggboxplot(
+  scatter_df,
+  x = "Motif_type",
+  y = "N_amount",
+  fill = "Motif_type",
+  color = "Motif_type",
+  palette = motif_type_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$N_amount, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Motif type",
+    y = "Number of FIMO peaks"
+  ) +
+  plot_theme +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+boxplt_mottyp_number
+
+
+boxplt_mottyp_wdth <- ggboxplot(
+  scatter_df,
+  x = "Motif_type",
+  y = "Mean_width",
+  fill = "Motif_type",
+  color = "Motif_type",
+  palette = motif_type_colors,
+  add = "jitter",
+  width = 0.5,
+  add.params = list(size = 2, alpha = 0.8)
+) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label.y = max(scatter_df$Mean_width, na.rm = TRUE)
+  ) +
+  labs(
+    x = "Motif type",
+    y = "Motif width (bp)"
+  ) +
+  plot_theme +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+boxplt_mottyp_wdth
+```
+
+
+# Saveblock boxplots
+
+```{r boxplot-save, include=FALSE}
+combined_plot_r1 <- 
+  boxplt_db_number + boxplt_db_wdth + 
+  boxplt_mottyp_simple_number + boxplt_mottyp_simple_wdth + 
+  plot_layout(ncol = 4)
+
+ggsave("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/even_boxplot_panel.pdf", combined_plot_r1, width = 16, height = 4)
+
+
+combined_plot_r2 <- 
+  boxplt_dattyp_number + boxplt_dattyp_wdth +
+  plot_layout(ncol = 2)
+
+ggsave("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/even_boxplot_panel_2.pdf", combined_plot_r2, width = 16, height = 4)
+
+
+combined_plot_r3 <- 
+  boxplt_mottyp_number + boxplt_mottyp_wdth +
+  plot_layout(ncol = 2)
+
+ggsave("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/even_boxplot_panel_3.pdf", combined_plot_r3, width = 16, height = 4)
+
+
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/FIMO_scat_plts.pdf", width = 8, height = 3, useDingbats = FALSE)  
+print(scatter_df_wdth_amount)
+dev.off()
+
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/FIMO_db_plts.pdf", width = 1.5 * length(unique(scatter_df$Motif_db)), height = 3)
+print(boxplt_db_number)
+print(boxplt_db_wdth)
+dev.off()
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/FIMO_mottyp_smp_plts.pdf", width = 1.5* length(unique(scatter_df$Motif_type_simple)), height = 3)
+print(boxplt_mottyp_simple_number)
+print(boxplt_mottyp_simple_wdth)
+dev.off()
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/FIMO_dattyp_plts.pdf", width = 1 * length(unique(scatter_df$Data_type_source)), height = 3)
+print(boxplt_dattyp_number)
+print(boxplt_dattyp_wdth)
+dev.off()
+
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Statistics_plots/FIMO_mottyp_plts.pdf", width = 1 * length(unique(scatter_df$Motif_type)), height = 3)
+print(boxplt_mottyp_number)
+print(boxplt_mottyp_wdth)
+dev.off()
+```
+
+# Genome-Wide PPRE Score and BED File Export
+
+A distance-weighted PPRE score is calculated for every ChIPseeker-annotated gene, and the results are written out as BED files.
+
+```{r final-genelist-nonzero}
+chip_scored <- chip_all %>%
+  dplyr::mutate(ppar_score = score * exp(-(abs(distanceToTSS)) / 3000)) # decay constant of 3000 bp reflects PPAR's promoter-proximal binding preference; also used in CistromeGO
+
+
+GTEX_snRNA_cardiomyocyte_nonzero <- read.csv("data/GTEX_single_nuclear_data/GTEx_non_zeros_ensembl.csv")
+
+GTEX_snRNA_cardiomyocyte_nonzero %>%
+  left_join(chip_scored, by = c( "ensembl_gene_id" ="ENSEMBL"), keep = TRUE) %>%
+  drop_na(c(ensembl_gene_id,ENSEMBL)) -> motif_hits_cardiomyocytes_nonzero_scored
+
+motif_presence <- motif_hits_cardiomyocytes_nonzero_scored %>%
+  distinct(ENSEMBL, motif_id) %>%          # one row per (gene, motif) combination present
+  mutate(hit = 1L) %>%                     # presence of the row indicates a hit
+  pivot_wider(
+    names_from  = motif_id,
+    values_from = hit,
+    values_fill = list(hit = 0L),
+    names_prefix = "motif_"
+  )
+
+ranked_scores_nonzero <- motif_hits_cardiomyocytes_nonzero_scored %>%
+  group_by(ENSEMBL) %>%
+  dplyr::summarise(PPRE_score_sum = sum(ppar_score, na.rm = TRUE),
+            PPRE_score_max = max(ppar_score, na.rm = TRUE),
+            PPRE_score_median = median(ppar_score, na.rm = TRUE),
+            PPRE_score_average = mean(ppar_score, na.rm = TRUE),
+            chromStart = dplyr::first(as.integer(start)),
+            chromEnd   = dplyr::first(end),
+            Chr       = dplyr::first(seqnames),
+            SYMBOL    = dplyr::first(SYMBOL),
+            ensembl   = dplyr::first(ENSEMBL),
+            score     = dplyr::first(PPRE_score_median),
+            strand    = dplyr::first(strand),
+            geneStart = dplyr::first(geneStart),
+            geneEnd   = dplyr::first(geneEnd), 
+            name      = dplyr::first(motif_id),
+            distanceToTss = dplyr::first(distanceToTSS),
+            expression= dplyr::first(expression_value)) %>%
+  dplyr::mutate(across(.cols = starts_with("PPRE_score_"),
+    .fns = ~ rank(-., ties.method = "first"),  # minus sign for descending ranking
+    .names = "rank_{.col}")) #the name for the col is rank_ + colname 
+
+ranked_scores_nonzero_with_motifs <- ranked_scores_nonzero %>%
+  left_join(motif_presence, by = "ENSEMBL")
+```
+
+```{r bedfile-all-chip-genes}
+chip_scored_single_gens <- chip_scored %>%
+  group_by(ENSEMBL) %>%
+  dplyr::summarise(PPRE_score_sum = sum(ppar_score, na.rm = TRUE),
+            PPRE_score_max = max(ppar_score, na.rm = TRUE),
+            PPRE_score_median = median(ppar_score, na.rm = TRUE),
+            PPRE_score_average = mean(ppar_score, na.rm = TRUE),
+            chromStart = dplyr::first(as.integer(start)),
+            chromEnd   = dplyr::first(as.integer(end)),
+            Chr       = dplyr::first(seqnames),
+            SYMBOL    = dplyr::first(SYMBOL),
+            ensembl   = dplyr::first(ENSEMBL),
+            score     = dplyr::first(PPRE_score_median),
+            strand    = dplyr::first(strand),
+            geneStart = dplyr::first(geneStart),
+            geneEnd   = dplyr::first(geneEnd), 
+            name      = dplyr::first(motif_id),
+            distanceToTSS = dplyr::first(distanceToTSS)) %>%
+  dplyr::mutate(across(.cols = starts_with("PPRE_score_"),
+    .fns = ~ rank(-., ties.method = "first"),  # minus sign for descending ranking
+    .names = "rank_{.col}")) #the name for the col is rank_ + colname 
+
+
+chip_scored_single_gens_bed <- data.frame(
+  chrom      = chip_scored_single_gens$Chr,
+  chromStart = chip_scored_single_gens$chromStart - 1,   # BED is 0-based
+  chromEnd   = chip_scored_single_gens$chromEnd,
+  motifName       = if ("name"  %in% names(chip_scored_single_gens)) chip_scored_single_gens$name  else ".",
+  score      = if ("score" %in% names(chip_scored_single_gens)) chip_scored_single_gens$PPRE_score_median else NA_character_,
+  strand     = as.character(chip_scored_single_gens$strand),
+  ensembl    = if ("ensembl" %in% names(chip_scored_single_gens))
+                 chip_scored_single_gens$ensembl else NA_character_,
+  symbol     = if ("SYMBOL" %in% names(chip_scored_single_gens)) {
+                 chip_scored_single_gens$SYMBOL
+               } else NA_character_,
+  geneStart  = if ("geneStart" %in% names(chip_scored_single_gens))
+                 chip_scored_single_gens$geneStart else NA_integer_,
+  geneEnd    = if ("geneEnd" %in% names(chip_scored_single_gens))
+                 chip_scored_single_gens$geneEnd else NA_integer_,
+  distanceToTSS = chip_scored_single_gens$distanceToTSS,
+  PPRE_score_sum = chip_scored_single_gens$PPRE_score_sum,
+  PPRE_score_max = chip_scored_single_gens$PPRE_score_max,
+  PPRE_score_average = chip_scored_single_gens$PPRE_score_average,
+  ensembl_genes = chip_scored_single_gens$ensembl,
+  check.names = FALSE
+)
+
+
+write.table(chip_scored_single_gens_bed, "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Bedfiles_output/PPRE_CHIP_all_genes_test.bed",
+            sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+```
+```{r create-BEDfile-PPRE_cardiomyocyte_expressed}
+ranked_scores_nonzero <- ranked_scores_nonzero_with_motifs
+ranked_scores_nonzero_bed <- data.frame(
+  chrom      = ranked_scores_nonzero$Chr,
+  chromStart = ranked_scores_nonzero$chromStart - 1,   # BED is 0-based
+  chromEnd   = ranked_scores_nonzero$chromEnd,
+  motifName       = if ("name"  %in% names(ranked_scores_nonzero)) ranked_scores_nonzero$name  else ".",
+  score      = if ("score" %in% names(ranked_scores_nonzero)) ranked_scores_nonzero$PPRE_score_median else 0,
+  strand     = as.character(ranked_scores_nonzero$strand),
+  ensembl    = if ("ensembl" %in% names(ranked_scores_nonzero))
+                 ranked_scores_nonzero$ensembl else NA_character_,
+  symbol     = if ("SYMBOL" %in% names(ranked_scores_nonzero)) {
+                 ranked_scores_nonzero$SYMBOL
+               } else NA_character_,
+  geneStart  = if ("geneStart" %in% names(ranked_scores_nonzero))
+                 ranked_scores_nonzero$geneStart else NA_integer_,
+  geneEnd    = if ("geneEnd" %in% names(ranked_scores_nonzero))
+                 ranked_scores_nonzero$geneEnd else NA_integer_,
+  distancetoTSS = ranked_scores_nonzero$distanceToTss,#
+  PPRE_score_sum = ranked_scores_nonzero$PPRE_score_sum,
+  PPRE_score_max = ranked_scores_nonzero$PPRE_score_max,
+  PPRE_score_average = ranked_scores_nonzero$PPRE_score_average,
+  GTEx_expression = ranked_scores_nonzero$expression,
+  ensembl_genes = ranked_scores_nonzero$ensembl,
+  check.names = FALSE
+)
+
+motif_cols <- grep("^motif_", names(ranked_scores_nonzero_with_motifs), value = TRUE)
+
+ranked_scores_nonzero_bed <- cbind(
+  ranked_scores_nonzero_bed,
+  ranked_scores_nonzero[, motif_cols, drop = FALSE]
+)
+
+write.table(ranked_scores_nonzero_bed, "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Bedfiles_output/PPRE_gtex_ranked_scores_abs_3k_test.bed",
+            sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+```
+
+```{r final-genelist-top20}
+GTEX_snRNA_cardiomyocyte_top20 <- read.csv("data/GTEX_single_nuclear_data/GTEx_top20%_ensembl.csv" )
+
+GTEX_snRNA_cardiomyocyte_top20 %>%
+  left_join(chip_scored, by = c( "ensembl_gene_id" ="ENSEMBL"), keep = TRUE) %>%
+  drop_na(c(ensembl_gene_id,ENSEMBL)) -> motif_hits_cardiomyocytes_top20_scored
+
+ranked_scores_top20 <- motif_hits_cardiomyocytes_top20_scored %>%
+  group_by(ENSEMBL) %>%
+  dplyr::summarise(PPRE_score_sum = sum(ppar_score, na.rm = TRUE),
+            PPRE_score_max = max(ppar_score, na.rm = TRUE),
+            PPRE_score_median = median(ppar_score, na.rm = TRUE),
+            PPRE_score_average = mean(ppar_score, na.rm = TRUE), .groups = "drop") %>%
+  dplyr::mutate(across(.cols = starts_with("PPRE_score_"),
+    .fns = ~ rank(-., ties.method = "first"),  # minus sign for descending ranking
+    .names = "rank_{.col}")) %>% #the name for the col is rank_ + colname
+  left_join(GTEX_snRNA_cardiomyocyte_nonzero, by = c("ENSEMBL" = "ensembl_gene_id")) %>%
+  dplyr::select(!X)
+```
+
+
+
+# Distributions of topX genes 
+
+with different aggregation methods per gene (Sum, Max, Median, Average)
+
+```{r Distribution-of-counts-SUM_MAX_MEDIAN_AVERAGE}
+scoring_list <- list(
+  nonzero = ranked_scores_nonzero
+)
+
+genes_to_annotate <- c("CPT1A","HADHA","HADHB","ACADVL","PPARA", "PPARB", "PPARG", "RXRA", "RXRB", "RXRG" )
+plot_list <- list()
+
+for (i in seq_along(scoring_list)) {
+  df <- scoring_list[[i]] 
+  ds_name <- names(scoring_list)[i]
+
+  gene_candidates <- c("SYMBOL", "HGNC_gene_name", "hgnc_symbol", "gene_symbol")
+  gene_col <- intersect(gene_candidates, names(df))[1]
+  if (is.na(gene_col))  
+    next
+  df <- dplyr::rename(df, SYMBOL = dplyr::all_of(gene_col))
+  for (col_name in names(df)) {
+    
+    if (!startsWith(tolower(col_name), "ppre"))
+      next
+
+    rank_col <- paste0("rank_", col_name)
+    if (!rank_col %in% names(df))
+      next
+
+    if (!is.numeric(df[[col_name]])) 
+      next
+
+    # values for annotated genes
+    gene_values <- df %>%
+      dplyr::filter(SYMBOL %in% genes_to_annotate) %>%
+      dplyr::select(SYMBOL, value = dplyr::all_of(col_name))
+
+    p <- ggplot2::ggplot(df, ggplot2::aes(x = .data[[col_name]])) +
+      ggplot2::geom_histogram(ggplot2::aes(fill = .data[[rank_col]]), bins = 300) +
+      ggplot2::scale_fill_manual(values = c("TRUE" = "black", "FALSE" = "red")) +
+      ggplot2::labs(title = gsub("_", " ", col_name),
+                    x = gsub("_", " ", col_name),
+                    y = "Frequency") +
+      ggplot2::scale_x_continuous(limits = c(0, NA), expand = c(0, 0)) +
+      ggplot2::scale_y_continuous(limits = c(0, NA), expand = c(0, 0)) +
+      ggplot2::coord_cartesian(clip = "off") +
+      ggplot2::guides(fill = "none") +
+      ggplot2::theme_bw() +
+      ggplot2::theme(
+        panel.border = ggplot2::element_blank(),
+        panel.grid.major = ggplot2::element_blank(),
+        panel.grid.minor = ggplot2::element_blank(),
+        axis.line.x = ggplot2::element_line(color = "black"),
+        axis.ticks.x = ggplot2::element_line(color = "black"),
+        axis.line.y = ggplot2::element_line(color = "black"),
+        legend.title = ggplot2::element_blank()
+      )
+
+    # add vertical lines & labels for annotated genes
+    if (nrow(gene_values) > 0) {
+      p <- p +
+        ggplot2::geom_vline(data = gene_values,
+                            ggplot2::aes(xintercept = value),
+                            color = "blue", linetype = "dashed") +
+        ggplot2::geom_text(data = gene_values,
+                           ggplot2::aes(x = value, y = Inf, label = SYMBOL),
+                           inherit.aes = FALSE, angle = 90, vjust = 1.2, size = 3, color = "blue")
+    }
+
+    # store plot with dataset + column name
+    plot_list[[paste(ds_name, col_name, sep = "_")]] <- p
+  }
+}
+
+print(plot_list[["nonzero_PPRE_score_sum"]])
+print(plot_list[["nonzero_PPRE_score_max"]])
+print(plot_list[["nonzero_PPRE_score_median"]])
+print(plot_list[["nonzero_PPRE_score_average"]])
+```
+
+```{r save-ppre-histograms}
+pdf("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/Scoring_FIMO/PPRE_score_histograms.pdf", width = 11, height = 6)  # adjust size if you want
+for (nm in names(plot_list)) {
+  print(plot_list[[nm]])
+}
+dev.off()
+```
+# Over Representation Analysis
+
+Dotplots per different aggregation method
+
+```{r run-ORA-dtplt}
+run_ora_dotplots <- function(df, pdf_path, width, height){
+  # open a multi-page PDF device
+  dir.create(dirname(pdf_path), showWarnings = FALSE, recursive = TRUE)
+  grDevices::pdf(pdf_path, onefile = TRUE, width = width, height = height, useDingbats = FALSE) #8.9 for article
+  on.exit(try(grDevices::dev.off(), silent = TRUE), add = TRUE)
+
+  cols <- names(df)[startsWith(tolower(names(df)), "ppre")]
+  cat("Processing", length(cols), "columns:", paste(cols, collapse = ", "), "\n")
+  printed <- 0
+
+  for (col_name in cols) {
+    cat("\n--", col_name, "--\n")
+    if (!("SYMBOL" %in% names(df))) { cat("No SYMBOL column.\n"); next }
+
+    top_syms <- df %>%
+      arrange(desc(.data[[col_name]])) %>%
+      slice_head(n = 5000) %>%
+      pull(SYMBOL) %>%
+      unique() %>% na.omit()
+
+    cat("Top symbols:", length(top_syms), "\n")
+    if (length(top_syms) < 10) { cat("Too few symbols.\n"); next }
+
+    gene_map <- bitr(top_syms, fromType="SYMBOL", toType="ENTREZID", OrgDb=org.Hs.eg.db)
+    cat("Mapped to ENTREZ:", nrow(gene_map), "\n")
+    if (nrow(gene_map) < 10) { cat("Too few mapped; skipping.\n"); next }
+
+    ego <- suppressMessages(enrichGO(
+      gene=gene_map$ENTREZID, OrgDb=org.Hs.eg.db, ont="BP",
+      pAdjustMethod="BH", pvalueCutoff=0.05, qvalueCutoff=0.05,
+      minGSSize=10, maxGSSize=5000, readable=TRUE))
+
+    n_terms <- nrow(as.data.frame(ego))
+    cat("Significant terms:", n_terms, "\n")
+    if (n_terms == 0) { cat("No significant enrichment under thresholds.\n"); next }
+
+    p <- dotplot(ego, showCategory=20, x="GeneRatio", orderBy="x",
+                 title=gsub("_", " ", col_name))
+    print(p)  # each print adds a new page to the PDF
+    printed <- printed + 1
+  }
+
+  if (printed == 0) {
+    grid::grid.newpage()
+    grid::grid.text("No ORA plots produced.\nCheck mapping/thresholds/top_n.", x=.5, y=.6)
+  }
+  cat("\nDone. Printed", printed, "plots to", pdf_path, "\n")
+}
+
+outdir <- "data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results"
+run_ora_dotplots(ranked_scores_top20,  file.path(outdir, "ORA_top20.pdf"), 8, 9)
+run_ora_dotplots(ranked_scores_nonzero,file.path(outdir, "ORA_nonzero.pdf"), 8,9)
+run_ora_dotplots(ranked_scores_nonzero,file.path(outdir, "ORA_nonzero_graphical abstract.pdf"), 5,5)
+```

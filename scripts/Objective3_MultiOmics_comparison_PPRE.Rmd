@@ -1,0 +1,568 @@
+---
+title: "Objective3_MultiOmics_overlaps_PPRE"
+author: "Eli Brouwer"
+date: "2025-10-03"
+output: html_document
+---
+
+```{r load libraries, echo = TRUE, warning = FALSE, message = FALSE}
+library(pacman)
+p_load(tidyr, dplyr, gt, writexl, stringr, ggvenn, magrittr, rtracklayer, clusterProfiler, tibble, ggpubr, ggrepel, forcats, patchwork, ggpubr, ggrepel, forcats, readxl, readr, purr,UpSetR, ComplexUpset, biomaRt, purrr, ComplexHeatmap)
+```
+
+**Load in the PPRE nonzeros bedfile**
+
+```{r load in PPRE nonzeros bedfile}
+ranked_scores_nonzero_bed  <-  read_tsv("data/PPAR_RXR_motifs_Hocomoco_Jaspar/Objective1_results/PPRE_ranked_scores_nonzero.bed",
+               show_col_types = FALSE)
+```
+
+**First load in Genelists of:**
+
+-   Nanostring
+
+-   Merscope
+
+-   Olink
+
+-   PamGene
+
+All genenames are converted to ensembl
+
+**Add Nanostring**
+
+```{r Nanostring-load}
+Nanostring_whole_transcriptome_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Nanostring/CosMx_Human_WholeTranscriptome.csv"
+
+Nanostring_Human_6k_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Nanostring/Human_6k_Discovery_Gene.xlsx"
+
+Nanostring_Immune_oncology_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Nanostring/Human_Protein_Immuno_Oncology.xlsx"
+
+Nanostring_1K_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Nanostring/Human_1k_Discovery_Gene.xlsx"
+
+Nanostring_whole_transcriptome <- read.csv(Nanostring_whole_transcriptome_pth, header = FALSE, col.names = "HGNC_genename", stringsAsFactors = FALSE)
+Nanostring_Human_6k            <- read_excel(Nanostring_Human_6k_pth, sheet = "Gene and Probe Details", skip = 1) %>%
+                                  dplyr::rename('HGNC_genename' = 'Gene Symbol(s)')
+Nanostring_Immune_oncology     <- read_excel(Nanostring_Immune_oncology_pth, sheet = "Protein Details", skip = 1) %>%
+                                  dplyr::rename('HGNC_genename' = 'Gene')
+Nanostring_1K                  <- read_excel(Nanostring_1K_pth, sheet = "Gene and Probe Details", skip = 1) %>%
+                                  dplyr::rename('HGNC_genename' = 'Gene Symbol(s)')
+```
+
+**Add Merscope**
+
+```{r Merscope-load}
+PPRE_genes = ranked_scores_nonzero_bed$ensembl
+
+MERSCOPE_missing_path <- "data/Objective3_MultiOmics_overlaps_PPRE/Merscope/VizGen_PPRE_genes.xlsx"
+MERSCOPE_missing <- read_excel(MERSCOPE_missing_path) %>%
+  dplyr::select(Untargetable)
+
+MERSCOPE_rev <- dplyr::setdiff(PPRE_genes, MERSCOPE_missing$Untargetable)
+```
+
+**Add Olink**
+
+```{r Olink-load}
+Olink_all_proteins_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Olink/Olink_all_proteins.xlsx"
+
+Olink_cardiometabolic_I_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Olink/Olink_cardiometabolic_I.csv"
+
+Olink_cardiometabolic_II_pth <- "data/Objective3_MultiOmics_overlaps_PPRE/Olink/Olink_cardiometabolic_II.csv"
+
+Olink_all_proteins        <- read_excel(Olink_all_proteins_pth) %>%
+                             dplyr::rename("HGNC_genename" = "Gene name")
+Olink_cardiometabolic_I   <- read.csv(Olink_cardiometabolic_I_pth, sep = ";") %>%
+                             dplyr::rename("HGNC_genename" = "Gene")
+Olink_cardiometabolic_II  <- read.csv(Olink_cardiometabolic_II_pth, sep = ";") %>%
+                             dplyr::rename("HGNC_genename" = "Gene")
+```
+
+**Add PamGene**
+
+```{r PamGene-load}
+Pam_peptide_path = "data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/PamGene_kinases.csv"
+Pam_peptide_ens<- read.csv(Pam_peptide_path) %>%
+  distinct(hgnc_symbol, .keep_all = TRUE) %>%
+  dplyr::rename('HGNC_genename' = 'hgnc_symbol')#removing duplicates 
+
+Pam_kinase_path = "data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/112_Kinases.xlsx"
+Pam_kinase_data <- read_excel(Pam_kinase_path, sheet = "Sheet2") 
+
+Pam_kinase_ensembl_path = "data/Objective3_MultiOmics_overlaps_PPRE/Pam_chip/Pam_112_kinases_with_ensembl.csv"
+
+Pam_kinase_ens <- read.csv(Pam_kinase_ensembl_path) %>%
+                  dplyr::rename('HGNC_genename' = "hgnc_symbol")
+```
+
+**Add Xenium**
+
+```{r Singleron-load}
+#Already ensembl gene_ids in dataset
+
+Xenium_path <- "data/Objective3_MultiOmics_overlaps_PPRE/Xenium/XeniumPrimeHuman5Kpan_tissue_pathways_metadata.csv"
+
+Xenium_ens <- read.csv(Xenium_path) %>%
+                  dplyr::rename('HGNC_genename' = "gene_name",
+                                'ensembl_gene_id' = "gene_id")
+  
+```
+
+**Add ensembl names**
+
+```{r ensembl add}
+get_ensembl_from_hgnc <- function(hgnc_vec,
+                                  dataset    = "hsapiens_gene_ensembl",
+                                  version    = NULL,          # set e.g. 110 to freeze Ensembl
+                                  chunk_size = 400) {
+
+  ids <- as.character(hgnc_vec)
+  ids <- unique(ids[nzchar(ids) & !is.na(ids)])
+  if (!length(ids)) stop("No valid HGNC symbols supplied.")
+
+  mart <- if (is.null(version)) {
+    useEnsembl("genes", dataset = dataset)
+  } else {
+    useEnsembl("genes", dataset = dataset, version = version)
+  }
+
+  chunks <- split(ids, ceiling(seq_along(ids) / chunk_size))
+
+  res <- map_dfr(
+    chunks,
+    ~ getBM(
+        attributes = c("hgnc_symbol", "ensembl_gene_id", "gene_biotype"),
+        filters    = "hgnc_symbol",
+        values     = .x,
+        mart       = mart
+      )
+  )
+
+  res %>%
+    mutate(pc = gene_biotype == "protein_coding") %>%
+    arrange(hgnc_symbol, desc(pc), ensembl_gene_id) %>%
+    distinct(hgnc_symbol, .keep_all = TRUE) %>%
+    transmute(
+      HGNC_genename   = hgnc_symbol,
+      ensembl_gene_id = ensembl_gene_id,
+      gene_biotype
+    )
+}
+```
+
+```{r add-ensembl to dfs}
+add_ensembl_from_hgnc <- function(df, ...) {
+  map_tbl <- get_ensembl_from_hgnc(df$HGNC_genename, ...)
+  left_join(df, map_tbl, by = "HGNC_genename")
+}
+
+
+Nanostring_whole_transcriptome_ens <- add_ensembl_from_hgnc(Nanostring_whole_transcriptome)
+Nanostring_Human_6k_ens            <- add_ensembl_from_hgnc(Nanostring_Human_6k)
+Nanostring_Immune_oncology_ens     <- add_ensembl_from_hgnc(Nanostring_Immune_oncology)
+Nanostring_1K_ens                  <- add_ensembl_from_hgnc(Nanostring_1K)
+Olink_all_proteins_ens             <- add_ensembl_from_hgnc(Olink_all_proteins)
+Olink_cardiometabolic_I_ens        <- add_ensembl_from_hgnc(Olink_cardiometabolic_I)
+Olink_cardiometabolic_II_ens       <- add_ensembl_from_hgnc(Olink_cardiometabolic_II)
+```
+
+**List all dfs, with ensembl genenames**
+
+```{r list-dfs, echo = TRUE, warning = FALSE, message = FALSE, results='hide'}
+Nanostring_whole_transcriptome_ens 
+Nanostring_Human_6k_ens            
+Nanostring_Immune_oncology_ens     
+Nanostring_1K_ens 
+Olink_all_proteins_ens
+Olink_cardiometabolic_I_ens
+Olink_cardiometabolic_II_ens
+Pam_peptide_ens
+Pam_kinase_ens
+Xenium_ens
+```
+```{r}
+dfs <- list(
+  Nanostring_whole_transcriptome_ens = Nanostring_whole_transcriptome_ens,
+  Nanostring_Human_6k_ens            = Nanostring_Human_6k_ens,
+  Nanostring_Immune_oncology_ens      = Nanostring_Immune_oncology_ens,
+  Nanostring_1K_ens                  = Nanostring_1K_ens,
+  Olink_all_proteins_ens             = Olink_all_proteins_ens,
+  Olink_cardiometabolic_I_ens        = Olink_cardiometabolic_I_ens,
+  Olink_cardiometabolic_II_ens       = Olink_cardiometabolic_II_ens,
+  Pam_peptide_ens                    = Pam_peptide_ens,
+  Pam_kinase_ens                     = Pam_kinase_ens,
+  Xenium_ens                         = Xenium_ens,
+  MERSCOPE_rev                       = MERSCOPE_rev
+  
+)
+
+# Output folder
+out_dir <- "data/Objective3_MultiOmics_overlaps_PPRE/Mydre_ens_dfs"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Write each DF as a tab-delimited .txt
+for (nm in names(dfs)) {
+  df <- dfs[[nm]]
+
+  # If you have tibbles / list-cols, coerce to plain data.frame
+  df <- as.data.frame(df)
+
+  out_file <- file.path(out_dir, paste0(nm, ".txt"))
+
+  write.table(
+    df,
+    file = out_file,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    col.names = TRUE
+  )
+}
+```
+
+Overlap with PPRE responsive genes and the subsequent database, to create upsetplot
+
+```{r}
+upset_control_y_axis <- function(upset_list, my_intersections, ymax, sets) {
+  library(ComplexUpset)
+  library(ggplot2)
+  library(dplyr)
+
+  heado <- fromList(upset_list)
+
+  incl <- sapply(my_intersections, function(v)
+    sum(rowSums(heado[, v, drop = FALSE]) == length(v))
+  )
+  ord <- order(incl, decreasing = TRUE)
+  my_intersections_sorted <- my_intersections[ord]
+
+  df_top <- data.frame(
+    idx = seq_along(incl[ord]),
+    value = as.numeric(incl[ord])
+  )
+
+  top_anno <- ggplot() +
+    geom_col(data = df_top, aes(x = idx, y = value), width = 0.9, fill = "grey30") +
+    geom_text(data = df_top, aes(x = idx, y = value, label = value),
+              vjust = -0.4, size = 3.5) +
+    scale_y_continuous(limits = c(0, ymax), expand = expansion(mult = c(0, .05))) +
+    labs(y = "Inclusive intersection size", x = NULL) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.background = element_blank(),
+      panel.grid = element_blank(),
+      axis.text.x = element_blank(),
+      axis.title.x = element_blank()
+    )
+
+  Upsetplt <- upset(
+    heado,
+    intersect = sets,
+    intersections = my_intersections_sorted,
+    base_annotations = list("Intersection size" = top_anno),
+    set_sizes = FALSE,           # hide lower-left set-size bars
+    sort_intersections = FALSE,
+    sort_sets = FALSE,
+    stripes = "white",
+    height_ratio = 0.4,
+    width_ratio = 0.45
+  ) +
+    theme(
+      panel.background = element_blank(),
+      plot.background = element_blank(),
+      panel.grid = element_blank()
+    )
+
+  Upsetplt
+}
+```
+
+
+```{r}
+GTEX_cm_expressed_path <- "data/GTEX_single_nuclear_data/GTEx_non_zeros_ensembl.csv"
+
+GTEX_cm_expressed <- read.csv(GTEX_cm_expressed_path)
+```
+
+```{r}
+Pam_gene_upset_list <- list( Pam_peptide_ens = Pam_peptide_ens$ensembl_gene_id,
+                                                  Pam_kinase_ens = Pam_kinase_ens$ensembl_gene_id ,
+                                                  PPRE_genes = ranked_scores_nonzero_bed$ensembl)
+Olink_upset_list <- list(
+  Olink_cardiometabolic_I  = unique(na.omit(Olink_cardiometabolic_I_ens$ensembl_gene_id)),
+  Olink_cardiometabolic_II = unique(na.omit(Olink_cardiometabolic_II_ens$ensembl_gene_id)))
+
+Nanostring_upset_list <- list( Nanostring_Human_6k = Nanostring_Human_6k_ens$ensembl_gene_id ,
+                                                  Nanostring_Immune_oncology = Nanostring_Immune_oncology_ens$ensembl_gene_id,
+                                                  Nanostring_1K = Nanostring_1K_ens$ensembl_gene_id)
+
+Xenium_upset_list <- list(Xenium_5k = Xenium_ens$ensembl_gene_id)
+Upset_list <- c(Pam_gene_upset_list,
+    Olink_upset_list,
+    Nanostring_upset_list,
+    Xenium_upset_list)
+
+Pam_gene_comparisons_list <- list(c("PPRE_genes","Pam_peptide_ens"),
+                                                  c("PPRE_genes","Pam_kinase_ens"),
+                                                  c("PPRE_genes","Pam_peptide_ens", "Pam_kinase_ens"))
+Olink_comparisons_list <- list(
+  c("PPRE_genes","Olink_cardiometabolic_I"),
+  c("PPRE_genes","Olink_cardiometabolic_II"))
+
+Nanostring_comparisons_list <-  list(c("PPRE_genes","Nanostring_1K"),
+                               c("PPRE_genes","Nanostring_Human_6k"),
+                               c("PPRE_genes","Nanostring_Immune_oncology"))
+Xenium_comparisons_list <- list(c("PPRE_genes", "Xenium_5k"))
+Comparisons_list <- c(
+  Pam_gene_comparisons_list,
+  Olink_comparisons_list,
+  Nanostring_comparisons_list,
+  Xenium_comparisons_list)
+Order <- c(
+  "PPRE_genes",
+  "Nanostring_Immune_oncology",
+  "Nanostring_Human_6k",
+  "Nanostring_1K",
+  "Olink_cardiometabolic_I",
+  "Olink_cardiometabolic_II",
+  "Pam_kinase_ens",
+  "Pam_peptide_ens",
+  "Xenium_5k"
+)
+
+
+Upsetplt_combined_article <- upset_control_y_axis(Upset_list,
+                                            Comparisons_list,
+                                            6000, 
+                                            Order)
+Upsetplt_combined_article
+```
+```{r}
+pdf("data/Objective3_MultiOmics_overlaps_PPRE/Output/Objective3_Upset_article.pdf", width = 7, height = 6)
+
+# Print each plot on a new page
+print(Upsetplt_combined_article)
+
+dev.off()
+```
+
+
+
+```{r}
+tab <- tibble::tribble(
+  ~panel, ~genes_total, ~pct_panel_overlap,
+  "Xenium 5k", 5001, 86.7,
+  "PamGene Peptides", 118, 73.8,
+  "PamGene Kinases", 122, 66.1,
+  "Olink cardiometabolic I", 369, 73.8,
+  "Olink cardiometabolic II", 367, 67.7,
+  "Nanostring 6k", 6197, 70.0,
+  "Nanostring 1k", 1012, 63.5,
+  "Nanostring Immune oncology", 71, 83.1,
+)
+
+g <- tab %>%
+  gt() %>%
+  fmt_number(columns = genes_total, decimals = 0) %>%
+  fmt_number(columns = pct_panel_overlap, decimals = 1) %>%
+  cols_label(
+    panel = "Panel name",
+    genes_total = "Genes\ntotal",
+    pct_panel_overlap = "Percentage\nof panel\noverlap (%)"
+  ) %>%
+  tab_options(
+    table.font.names = "Arial",
+    table.font.size = 9,
+    data_row.padding = px(3),
+    heading.border.bottom.width = px(0),
+    table.border.top.width = px(0),
+    table.border.bottom.width = px(0)
+  ) %>%
+  opt_table_lines(extent = "none") %>%   # geen raster
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(everything())
+  )
+
+gtsave(g, "data/Objective3_MultiOmics_overlaps_PPRE/Output/Objective3_figure_table.pdf")
+```
+
+```{r}
+Pam_gene_upset_list <- list( Pam_peptide_ens = Pam_peptide_ens$ensembl_gene_id,
+                                                  Pam_kinase_ens = Pam_kinase_ens$ensembl_gene_id ,
+                                                  PPRE_genes = ranked_scores_nonzero_bed$ensembl,
+                                                  five_marker = c("ENSG00000072778", "ENSG00000084754","ENSG00000138029","ENSG00000205560", "ENSG00000132170"),
+                                                  CM_expressed = GTEX_cm_expressed$ensembl)
+Olink_upset_list <- list(
+  Olink_cardiometabolic_I  = unique(na.omit(Olink_cardiometabolic_I_ens$ensembl_gene_id)),
+  Olink_cardiometabolic_II = unique(na.omit(Olink_cardiometabolic_II_ens$ensembl_gene_id)),
+  Olink_all_proteins = unique(na.omit(Olink_all_proteins$ensembl_gene_id)))
+
+Nanostring_upset_list <- list( Nanostring_Human_6k = Nanostring_Human_6k_ens$ensembl_gene_id ,
+                                                  Nanostring_Immune_oncology = Nanostring_Immune_oncology_ens$ensembl_gene_id,
+                                                  Nanostring_1K = Nanostring_1K_ens$ensembl_gene_id,
+                                                  Nanostring_whole_transcriptome_ens =  Nanostring_whole_transcriptome_ens$ensembl_gene_id)
+Xenium_upset_list <- list(Xenium_5k = Xenium_ens$ensembl_gene_id)
+
+MERSCOPE_upset_list <- list(MERSCOPE = MERSCOPE_rev)
+Upset_list <- c(Pam_gene_upset_list,
+    Olink_upset_list,
+    Nanostring_upset_list,
+    Xenium_upset_list,
+    MERSCOPE_upset_list)
+
+Pam_gene_comparisons_list <- list(c("PPRE_genes","Pam_peptide_ens"),
+                                  c("PPRE_genes","Pam_kinase_ens"),
+                                  c("PPRE_genes","Pam_peptide_ens", "Pam_kinase_ens"),
+                                  c("five_marker", "Pam_peptide_ens"),
+                                  c("five_marker", "Pam_kinase_ens"),
+                                  c("CM_expressed","Pam_peptide_ens"),
+                                  c("CM_expressed","Pam_kinase_ens"),
+                                  c("CM_expressed","Pam_peptide_ens", "Pam_kinase_ens"))
+Olink_comparisons_list <- list(
+  c("PPRE_genes","Olink_cardiometabolic_I"),
+  c("PPRE_genes","Olink_cardiometabolic_II"),
+  c("PPRE_genes","Olink_all_proteins"),
+  c("Olink_cardiometabolic_II","Olink_cardiometabolic_I"),
+  c("five_marker", "Olink_cardiometabolic_I"),
+  c("five_marker", "Olink_cardiometabolic_II"),
+  c("five_marker", "Olink_all_proteins"),
+  c("CM_expressed","Olink_cardiometabolic_I"),
+  c("CM_expressed","Olink_cardiometabolic_II"))
+
+Nanostring_comparisons_list <-  list(c("PPRE_genes","Nanostring_1K"),
+                               c("PPRE_genes","Nanostring_Human_6k"),
+                               c("PPRE_genes","Nanostring_Immune_oncology"),
+                               c("PPRE_genes","Nanostring_whole_transcriptome_ens"),
+                               c("Nanostring_1K","Nanostring_Human_6k"),
+                               c("Nanostring_Human_6k","Nanostring_Immune_oncology"),
+                               c("five_marker", "Nanostring_Human_6k"),
+                               c("five_marker", "Nanostring_Immune_oncology"),
+                               c("five_marker", "Nanostring_whole_transcriptome_ens"),
+                               c("CM_expressed","Nanostring_1K"),
+                               c("CM_expressed","Nanostring_Human_6k"),
+                               c("CM_expressed","Nanostring_Immune_oncology"))
+
+Xenium_comparisons_list <- list(c("PPRE_genes", "Xenium_5k"),
+                                c("five_marker", "Xenium_5k"),
+                                c("CM_expressed", "Xenium_5k"))
+
+MERSCOPE_comparisons_list <- list(c("PPRE_genes", "MERSCOPE"),
+                                c("five_marker", "MERSCOPE"))
+Comparisons_list <- c(
+  Pam_gene_comparisons_list,
+  Olink_comparisons_list,
+  Nanostring_comparisons_list,
+  Xenium_comparisons_list,
+  MERSCOPE_comparisons_list)
+
+Order <- c(
+  "CM_expressed",
+  "PPRE_genes",
+  "five_marker",
+  "MERSCOPE",
+  "Olink_all_proteins",
+  "Nanostring_whole_transcriptome_ens",
+  "Nanostring_Immune_oncology",
+  "Xenium_5k",
+  "Nanostring_Human_6k",
+  "Nanostring_1K",
+  "Olink_cardiometabolic_II",
+  "Olink_cardiometabolic_I",
+  "Pam_kinase_ens",
+  "Pam_peptide_ens"
+)
+
+Upsetplt_combined_supplement <- upset_control_y_axis(Upset_list,
+                                            Comparisons_list,
+                                            18000, 
+                                            Order)
+Upsetplt_combined_supplement
+```
+```{r reverse engineer MERSCOPE}
+
+```
+
+```{r}
+Pam_gene_upset_list <- list( Pam_peptide_ens = Pam_peptide_ens$ensembl_gene_id,
+                                                  Pam_kinase_ens = Pam_kinase_ens$ensembl_gene_id ,
+                                                  PPRE_genes = ranked_scores_nonzero_bed$ensembl,
+                                                  five_marker = c("ENSG00000072778", "ENSG00000084754","ENSG00000138029","ENSG00000205560", "ENSG00000132170"),
+                                                  CM_expressed = GTEX_cm_expressed$ensembl)
+Olink_upset_list <- list(
+  Olink_cardiometabolic_I  = unique(na.omit(Olink_cardiometabolic_I_ens$ensembl_gene_id)),
+  Olink_cardiometabolic_II = unique(na.omit(Olink_cardiometabolic_II_ens$ensembl_gene_id)),
+  Olink_all_proteins = unique(na.omit(Olink_all_proteins$ensembl_gene_id)))
+
+Nanostring_upset_list <- list( Nanostring_Human_6k = Nanostring_Human_6k_ens$ensembl_gene_id ,
+                                                  Nanostring_Immune_oncology = Nanostring_Immune_oncology_ens$ensembl_gene_id,
+                                                  Nanostring_1K = Nanostring_1K_ens$ensembl_gene_id,
+                                                  Nanostring_whole_transcriptome_ens =  Nanostring_whole_transcriptome_ens$ensembl_gene_id)
+Xenium_upset_list <- list(Xenium_5k = Xenium_ens$ensembl_gene_id)
+
+MERSCOPE_upset_list <- list(MERSCOPE = MERSCOPE_rev)
+Upset_list <- c(Pam_gene_upset_list,
+    Olink_upset_list,
+    Nanostring_upset_list,
+    Xenium_upset_list,
+    MERSCOPE_upset_list)
+
+Pam_gene_comparisons_list <- list(c("PPRE_genes","Pam_peptide_ens"),
+                                  c("PPRE_genes","Pam_kinase_ens"),
+                                  c("PPRE_genes","Pam_peptide_ens", "Pam_kinase_ens"),
+                                  c("five_marker", "Pam_peptide_ens"),
+                                  c("five_marker", "Pam_kinase_ens"))
+Olink_comparisons_list <- list(
+  c("PPRE_genes","Olink_cardiometabolic_I"),
+  c("PPRE_genes","Olink_cardiometabolic_II"),
+  c("PPRE_genes","Olink_all_proteins"),
+  c("Olink_cardiometabolic_II","Olink_cardiometabolic_I"),
+  c("five_marker", "Olink_cardiometabolic_I"),
+  c("five_marker", "Olink_cardiometabolic_II"),
+  c("five_marker", "Olink_all_proteins"))
+
+Nanostring_comparisons_list <-  list(c("PPRE_genes","Nanostring_1K"),
+                               c("PPRE_genes","Nanostring_Human_6k"),
+                               c("PPRE_genes","Nanostring_Immune_oncology"),
+                               c("PPRE_genes","Nanostring_whole_transcriptome_ens"),
+                               c("Nanostring_1K","Nanostring_Human_6k"),
+                               c("Nanostring_Human_6k","Nanostring_Immune_oncology"),
+                               c("five_marker", "Nanostring_Human_6k"),
+                               c("five_marker", "Nanostring_Immune_oncology"),
+                               c("five_marker", "Nanostring_whole_transcriptome_ens"))
+
+Xenium_comparisons_list <- list(c("PPRE_genes", "Xenium_5k"),
+                                c("five_marker", "Xenium_5k"))
+
+MERSCOPE_comparisons_list <- list(c("PPRE_genes", "MERSCOPE"),
+                                c("five_marker", "MERSCOPE"))
+Comparisons_list <- c(
+  Pam_gene_comparisons_list,
+  Olink_comparisons_list,
+  Nanostring_comparisons_list,
+  Xenium_comparisons_list,
+  MERSCOPE_comparisons_list)
+
+Order <- c(
+  "PPRE_genes",
+  "five_marker",
+  "MERSCOPE",
+  "Olink_all_proteins",
+  "Nanostring_whole_transcriptome_ens",
+  "Nanostring_Immune_oncology",
+  "Xenium_5k",
+  "Nanostring_Human_6k",
+  "Nanostring_1K",
+  "Olink_cardiometabolic_II",
+  "Olink_cardiometabolic_I",
+  "Pam_kinase_ens",
+  "Pam_peptide_ens"
+)
+
+Upsetplt_combined_supplement <- upset_control_y_axis(Upset_list,
+                                            Comparisons_list,
+                                            18000, 
+                                            Order)
+Upsetplt_combined_supplement
+```
+
