@@ -1,0 +1,546 @@
+---
+title: "PPAR/RXR Motif Alignment and MEME Export"
+author: "Eli Brouwer"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+This script aligns the 30 PPAR/RXR motifs (11 HOCOMOCO, 11 JASPAR and 8 additional CIS-BP motifs), builds consensus logos from the alignments, and exports the motifs as MEME files that are used as input for FIMO.
+
+```{r setup, include = FALSE}
+library(tools)
+library(DiffLogo)
+library(TFBSTools)
+library(motifStack)
+library(Cairo)
+library(universalmotif)
+library(gridExtra)
+library(grid)
+```
+
+```{r set-directory}
+hocomoco_motif_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/HOCOMOCO"
+
+jaspar_motif_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/JASPAR"
+
+cisbp_meme_file = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/CIS-BP/CIS-BP_curated_additions_combined.meme"
+
+output_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar/CIS-BP"
+
+main_project_directory = "data/PPAR_RXR_motifs_Hocomoco_Jaspar"
+```
+
+Load in JASPAR, HOCOMOCO, and the new CIS-BP motifs, and convert to PFM file structure.
+
+```{r load-jaspar}
+jaspar_motifs_lst <- list.files(jaspar_motif_directory)
+for (i in 1:length(jaspar_motifs_lst)){
+  pwm_matrix = getPwmFromPfmOrJasparFile(paste0(jaspar_motif_directory, "/", jaspar_motifs_lst[i]))
+  write.table(pwm_matrix[,-1], file = paste0(jaspar_motif_directory, "/", file_path_sans_ext(jaspar_motifs_lst[i]), ".pwm"), sep = "\t", quote = FALSE, col.names = FALSE)
+}
+```
+
+```{r jaspar-to-pfm}
+# making a pfm list from jaspar
+jaspar_motifs_pfm_lst <-  grep("\\.jaspar$", list.files(jaspar_motif_directory), value = TRUE)
+jaspar_pfm_list <- list()
+for (i in 1:length(jaspar_motifs_pfm_lst)){
+  jaspar_pfm_list[[jaspar_motifs_pfm_lst[i]]] <- pcm2pfm(importMatrix(paste0(jaspar_motif_directory, "/", jaspar_motifs_pfm_lst[i]), to = "pcm"))[[1]]
+}
+```
+
+```{r meme-to-pfm}
+hocomoco_motifs_pfm_lst <- grep("\\.meme$", list.files(hocomoco_motif_directory), value = TRUE) # import all hocomoco
+
+# Only the 11 HOCOMOCO motifs used in the alignment are kept. RXRB.H13CORE.2.PS.A and
+# the RXRG.H13CORE half-sites are left out, RXRG is covered by JASPAR MA0856.1 and MA1556.1
+hocomoco_motifs_pfm_lst <- hocomoco_motifs_pfm_lst[hocomoco_motifs_pfm_lst %in% c(
+  "PPARA.H13CORE.0.P.B_meme_format.meme",
+  "PPARA.H13CORE.1.P.B_meme_format.meme",
+  "PPARD.H13CORE.0.PSM.A_meme_format.meme",
+  "PPARG.H13CORE.0.P.B_meme_format.meme",
+  "PPARG.H13CORE.1.P.B_meme_format.meme",
+  "RXRA.H13CORE.0.PS.A_meme_format.meme",
+  "RXRA.H13CORE.1.S.C_meme_format.meme",
+  "RXRA.H13CORE.2.SM.B_meme_format.meme",
+  "RXRA.H13CORE.3.P.B_meme_format.meme",
+  "RXRB.H13CORE.0.P.C_meme_format.meme",
+  "RXRB.H13CORE.1.SM.B_meme_format.meme"
+)]
+
+hocomoco_pfm_list <- list()
+for (i in 1:length(hocomoco_motifs_pfm_lst)){
+  hocomoco_pfm_list[[hocomoco_motifs_pfm_lst[i]]] <- importMatrix(paste0(hocomoco_motif_directory, "/", hocomoco_motifs_pfm_lst[i]))[[1]]
+}
+```
+
+## CIS-BP motifs
+
+Eight motifs from CIS-BP were added: two PPARD binding modes (M05794/M05796), two RXRA binding modes (M03621/M03623) and four Transfac motifs (PPARA M12541, PPARG M12496/M12497/M12498). Their pairwise overlap with the other motifs in the genome-wide FIMO results is low (1-50% shared peaks), so they add mostly new genomic coverage.
+
+`importMatrix()` returns one `pfm` per `MOTIF` line of the combined MEME file, named `{GENE}_{MotifID}`.
+
+```{r meme-to-pfm-cisbp}
+cisbp_pfm_list <- importMatrix(cisbp_meme_file)
+names(cisbp_pfm_list) <- sapply(cisbp_pfm_list, function(m) m@name)
+cisbp_pfm_list
+```
+
+# Reference PPRE Motif
+
+A canonical PPRE (DR1) motif is defined manually as a reference for alignment and comparison against the HOCOMOCO and JASPAR motifs.
+
+```{r ppre-reference-motif}
+PPRE_mat <- matrix(c(
+  1,1,1,0,0,1,0,0,0,0,1,1,1,0,0,0,0,1,  # A
+  0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,  # C
+  0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,  # G
+  0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0   # T
+), nrow=4, byrow=TRUE)
+
+rownames(PPRE_mat) <- c("A", "C", "G", "T")
+
+ppre_motif <- new("pfm", mat=PPRE_mat, name="PPRE motif")
+plotMotifLogoStack(list(ppre_motif), fontsize = 2, yaxis = FALSE, ylab = "", font = 'Arial')
+```
+
+```{r convert-pfm-to-ppm}
+# Order: 11 HOCOMOCO, 11 JASPAR, 8 CIS-BP, then the synthetic PPRE reference
+pfm_list <- c(hocomoco_pfm_list, jaspar_pfm_list, cisbp_pfm_list)
+pfm_list <- c(pfm_list, ppre_motif)
+meme_list <- list()
+annotation_file <- list()
+for (i in 1:length(pfm_list)){
+  meme_list[[i]] <- convert_type(motifs = pfm_list[[i]], type = 'PPM')
+  annotation_file[[i]] <- meme_list[[i]]$name
+}
+```
+
+# Motif Alignment
+
+All 31 motifs (22 HOCOMOCO/JASPAR + 8 CIS-BP + the PPRE reference) are aligned together and
+reordered into the desired display order (grouped by transcription factor). New CIS-BP
+motifs are marked with a trailing `*` in the plotted label and slotted in next to their
+family (e.g. `PPARD_M05794_3.10 *` follows the existing PPARD entries).
+
+```{r motif-alignment, fig.keep='none'}
+aligned_motifs <- DNAmotifAlignment(pfm_list, threshold = 0.5, minimalConsensus = 6)
+motif_names <- sapply(aligned_motifs, function(m) m@name)
+
+new_cisbp_names <- c(
+  "PPARA_M12541_3.10",
+  "PPARD_M05794_3.10", "PPARD_M05796_3.10",
+  "PPARG_M12496_3.10", "PPARG_M12497_3.10", "PPARG_M12498_3.10",
+  "RXRA_M03621_3.10", "RXRA_M03623_3.10"
+)
+
+desired_order <- c("PPRE motif",
+                   "MA1148.1\tPPARA::RXRA",
+                   "MA1148.2\tPPARA::RXRA",
+                   "MA0065.1\tPPARG::RXRA",
+                   "PPARA.H13CORE.0.P.B",
+                   "PPARA.H13CORE.1.P.B",
+                   "PPARA_M12541_3.10",
+                   "PPARD.H13CORE.0.PSM.A",
+                   "MA1550.1\tPPARD",
+                   "MA1550.2\tPPARD",
+                   "PPARD_M05794_3.10",
+                   "PPARD_M05796_3.10",
+                   "PPARG.H13CORE.0.P.B",
+                   "PPARG.H13CORE.1.P.B",
+                   "MA0066.1\tPPARG",
+                   "MA0066.2\tPPARG",
+                   "PPARG_M12496_3.10",
+                   "PPARG_M12497_3.10",
+                   "PPARG_M12498_3.10",
+                   "RXRA.H13CORE.0.PS.A",
+                   "RXRA.H13CORE.1.S.C",
+                   "RXRA.H13CORE.2.SM.B",
+                   "RXRA.H13CORE.3.P.B",
+                   "RXRA_M03621_3.10",
+                   "RXRA_M03623_3.10",
+                   "RXRB.H13CORE.0.P.C",
+                   "RXRB.H13CORE.1.SM.B",
+                   "MA0855.1\tRXRB",
+                   "MA1555.1\tRXRB(RC)",
+                   "MA0856.1\tRXRG",
+                   "MA1556.1\tRXRG")
+
+# DNAmotifAlignment() picks its own reference orientation from the full motif
+# set and appends "(RC)" to whichever @name it decided to flip; with the 8 new
+# motifs added, that now includes some of the new motifs (and even the PPRE
+# reference) that were NOT flipped before. Match on the name with any
+# trailing "(RC)" stripped, same as the unsupervised-alignment chunk below.
+strip_rc_order <- function(x) sub("\\(RC\\)$", "", x)
+indices <- match(strip_rc_order(desired_order), strip_rc_order(motif_names))
+stopifnot(!any(is.na(indices)))
+aligned_motifs_order <- rev(aligned_motifs[indices])
+
+# mark new CIS-BP motifs with a trailing "*" for display only
+for (i in seq_along(aligned_motifs_order)) {
+  if (strip_rc_order(aligned_motifs_order[[i]]@name) %in% new_cisbp_names) {
+    aligned_motifs_order[[i]]@name <- paste0(aligned_motifs_order[[i]]@name, " *")
+  }
+}
+
+# Same stacking as plotMotifLogoStack(), with a yellow highlight behind the
+# title of the 8 CIS-BP motifs (marked with a trailing " *" above)
+highlighted_motif_stack <- function(pfms, ...) {
+  n <- length(pfms)
+  ht <- 1 / n
+  y0 <- 0.5 * ht
+  plot <- gList()
+  for (i in seq_len(n)) {
+    m <- pfms[[i]]
+    is_new_cisbp <- grepl("\\*$", m@name)
+    logo <- plotMotifLogo(pfm = m, motifName = m@name, p = m@background, colset = m@color,
+                           xlab = NA, newpage = FALSE, draw = FALSE,
+                           margins = c(1.5, 4.1, 1.1, 0.1), ...)
+    children <- if (is_new_cisbp) {
+      gList(
+        rectGrob(y = unit(1, "npc") - unit(0.6, "lines"), height = unit(1.2, "lines"),
+                 width = unit(0.98, "npc"), gp = gpar(fill = "#fff59d", col = NA, alpha = 0.8)),
+        logo
+      )
+    } else {
+      logo
+    }
+    plot <- gList(plot, gTree(children = children, vp = viewport(y = y0, height = ht)))
+    y0 <- y0 + ht
+  }
+  plot
+}
+
+dev.control("enable")
+grid.newpage()
+grid.draw(highlighted_motif_stack(aligned_motifs_order, fontsize = 2, yaxis = FALSE, ylab = "", font = 'Arial'))
+recorded_alignment_plot <- recordPlot()
+# Drawing directly into pdf() gave an empty file under knitr, so the plot is drawn
+# on the normal device, recorded, and replayed into the pdf
+pdf(paste0(output_directory, "/aligned_motifs_with_CISBP_threshold0.5.pdf"), height = 20)
+replayPlot(recorded_alignment_plot)
+dev.off()
+```
+
+```{r plot-alignment, fig.width=20, fig.height=34}
+grid.newpage()
+grid.draw(highlighted_motif_stack(aligned_motifs_order, fontsize = 4, yaxis = FALSE, ylab = "", font = 'Arial'))
+```
+
+# PPRE Architecture Validation Figure
+
+This figure checks whether the individual PPAR and RXR half-site motifs, plus the three full PPAR::RXR heterodimer motifs, recover the expected PPRE (DR1) architecture: a `AGGTCA`-like PPAR half-site, a 1 bp spacer, and a second `AGGTCA`-like RXR half-site. The synthetic `PPRE motif` reference itself is kept separate as the template.
+
+Two consensus logos are built from the same 30 motifs and compared:
+
+* **Manual alignment**: each motif is placed on a shared canvas at a hand-picked start column (reverse-complemented where needed), based on where its `AGGTCA`-like core sits.
+* **Unsupervised alignment**: the same 30 motifs, taken from the `DNAmotifAlignment()` result (`aligned_motifs`) computed above.
+
+## Placing the CIS-BP motifs
+
+The start columns of the earlier motifs were set by hand. For the 8 CIS-BP motifs the `AGGTCA`-like half-site was located in each motif and placed under the canvas column used by its family (PPAR half-sites under column 6, RXR half-sites under column 13, as in the PPRE reference diagram below). `PPARA_M12541_3.10` extends two columns further to the left than any other motif, so all start values are shifted right by 2 (`manual_alignment$Start <- manual_alignment$Start + 2`), which only adds blank columns and does not change the relative alignment.
+
+Two pairs of CIS-BP motifs do not fit the DR1 template:
+
+* `PPARD_M05794_3.10` / `PPARD_M05796_3.10` have an inverted half-site arrangement (`GGTCA-Y-GACC`). Their first half-site aligns under the PPAR box, but the second one (`TGACC`) falls in the spacer/RXR box region.
+* `RXRA_M03621_3.10` / `RXRA_M03623_3.10` are everted repeats (`GGTCA-TGACC`, no spacer). Their second half-site extends past column 18, the right edge of the RXR box.
+
+These four are kept in their PPAR/RXR family and are not given a separate canvas, so they stay comparable to the other motifs.
+
+```{r ppre-manual-alignment-table}
+# Start column (on a shared canvas) and orientation for every motif, based on
+# where its AGGTCA-like core sits
+# MA1555.1's source file already stores it reverse-complemented relative to
+# the other RXR motifs, so it is flipped back here to align consistently.
+manual_alignment <- data.frame(
+  Motif_name = c(
+    "MA1148.1\tPPARA::RXRA", "MA1148.2\tPPARA::RXRA", "MA0065.1\tPPARG::RXRA",
+
+    "PPARA.H13CORE.0.P.B", "PPARA.H13CORE.1.P.B", "PPARD.H13CORE.0.PSM.A",
+    "MA1550.1\tPPARD", "MA1550.2\tPPARD", "PPARG.H13CORE.0.P.B", "PPARG.H13CORE.1.P.B",
+    "MA0066.1\tPPARG", "MA0066.2\tPPARG",
+
+    "RXRA.H13CORE.0.PS.A", "RXRA.H13CORE.1.S.C", "RXRA.H13CORE.2.SM.B", "RXRA.H13CORE.3.P.B",
+    "RXRB.H13CORE.0.P.C", "RXRB.H13CORE.1.SM.B",
+    "MA0855.1\tRXRB", "MA1555.1\tRXRB", "MA0856.1\tRXRG", "MA1556.1\tRXRG"
+  ),
+  Start = c(
+    2, 2, 2,
+    2, 3, 4, 4, 5, 2, 1, 4, 5,
+    10, 10, 5, 1, 6, 4, 5, 12, 5, 12
+  ),
+  Reverse_complement = c(
+    FALSE, FALSE, FALSE,
+    FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
+    FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE
+  ),
+  # Which guide box(es) this motif's core should land under: the three full
+  # heterodimers span both half-sites, everything else spans just one
+  Family = c(
+    "BOTH", "BOTH", "BOTH",
+    "PPAR", "PPAR", "PPAR", "PPAR", "PPAR", "PPAR", "PPAR", "PPAR", "PPAR",
+    "RXR", "RXR", "RXR", "RXR", "RXR", "RXR", "RXR", "RXR", "RXR", "RXR"
+  ),
+  stringsAsFactors = FALSE
+)
+
+# Shift the whole existing canvas +2 columns to the right so PPARA_M12541_3.10
+# (which needs 2 more upstream columns than anything currently placed) fits
+# without Start < 1. This only pads blank columns on the left; it does not
+# change any motif's position relative to any other existing motif.
+manual_alignment$Start <- manual_alignment$Start + 2
+
+# The 8 new CIS-BP motifs, Start values already on the shifted (+2) canvas.
+# See "Placing the 8 new CIS-BP motifs" above for how these were derived.
+manual_alignment_additions <- data.frame(
+  Motif_name = c(
+    "PPARA_M12541_3.10",
+    "PPARG_M12496_3.10", "PPARG_M12497_3.10", "PPARG_M12498_3.10",
+    "PPARD_M05794_3.10", "PPARD_M05796_3.10",
+    "RXRA_M03621_3.10", "RXRA_M03623_3.10"
+  ),
+  Start = c(
+    1,
+    4, 4, 4,
+    6, 6,
+    14, 14
+  ),
+  Reverse_complement = c(
+    FALSE,
+    FALSE, FALSE, FALSE,
+    FALSE, FALSE,
+    FALSE, FALSE
+  ),
+  Family = c(
+    "PPAR",
+    "PPAR", "PPAR", "PPAR",
+    "PPAR", "PPAR",
+    "RXR", "RXR"
+  ),
+  stringsAsFactors = FALSE
+)
+
+manual_alignment <- rbind(manual_alignment, manual_alignment_additions)
+
+normalize_matrix <- function(mat) {
+  mat <- mat[c("A", "C", "G", "T"), , drop = FALSE]
+  mat[is.na(mat)] <- 0
+  totals <- colSums(mat)
+  informative <- totals > 0
+  if (any(informative)) {
+    mat[, informative] <- sweep(mat[, informative, drop = FALSE], MARGIN = 2, STATS = totals[informative], FUN = "/")
+  }
+  mat
+}
+
+# Reverse-complement a PFM: reverse column order and swap A<->T, C<->G rows
+reverse_complement_matrix <- function(mat) {
+  mat <- mat[c("T", "G", "C", "A"), ncol(mat):1, drop = FALSE]
+  rownames(mat) <- c("A", "C", "G", "T")
+  mat
+}
+
+place_on_canvas <- function(mat, start, canvas_width) {
+  end <- start + ncol(mat) - 1
+  if (start < 1 || end > canvas_width) {
+    stop("Motif does not fit on canvas. Start = ", start, ", end = ", end, ", canvas width = ", canvas_width)
+  }
+  canvas <- matrix(0, nrow = 4, ncol = canvas_width, dimnames = list(c("A", "C", "G", "T"), seq_len(canvas_width)))
+  canvas[, start:end] <- mat
+  canvas
+}
+
+motifs_by_name <- setNames(pfm_list, vapply(pfm_list, function(motif) motif@name, character(1)))
+motifs_by_name <- motifs_by_name[names(motifs_by_name) != "PPRE motif"]
+
+missing_names <- setdiff(manual_alignment$Motif_name, names(motifs_by_name))
+if (length(missing_names) > 0) {
+  stop("These motifs were not found in pfm_list: ", paste(missing_names, collapse = ", "))
+}
+
+canvas_width <- max(vapply(seq_len(nrow(manual_alignment)), function(i) {
+  manual_alignment$Start[i] + ncol(motifs_by_name[[manual_alignment$Motif_name[i]]]@mat) - 1
+}, numeric(1)))
+
+manual_aligned_matrices <- lapply(seq_len(nrow(manual_alignment)), function(i) {
+  motif_name <- manual_alignment$Motif_name[i]
+  mat <- normalize_matrix(motifs_by_name[[motif_name]]@mat)
+  if (manual_alignment$Reverse_complement[i]) mat <- reverse_complement_matrix(mat)
+  place_on_canvas(mat = mat, start = manual_alignment$Start[i], canvas_width = canvas_width)
+})
+names(manual_aligned_matrices) <- manual_alignment$Motif_name
+```
+
+```{r ppre-manual-consensus}
+# Coverage-aware consensus: average only the motifs that actually cover each
+# canvas position, then keep only positions covered by at least half of the
+# 30 motifs. Without this trim, the few columns only 1-2 motifs happen to
+# reach (the wide flanks of the longer heterodimer motifs) would dilute the
+# consensus with near-background noise instead of being dropped.
+n_motifs <- length(manual_aligned_matrices)
+consensus_matrix <- matrix(0, nrow = 4, ncol = canvas_width, dimnames = list(c("A","C","G","T"), seq_len(canvas_width)))
+position_coverage <- numeric(canvas_width)
+for (position in seq_len(canvas_width)) {
+  contributing <- vapply(manual_aligned_matrices, function(mat) sum(mat[, position]) > 0, logical(1))
+  position_coverage[position] <- sum(contributing)
+  if (any(contributing)) {
+    position_values <- vapply(manual_aligned_matrices[contributing], function(mat) mat[, position], numeric(4))
+    consensus_matrix[, position] <- rowMeans(position_values)
+  }
+}
+
+minimum_coverage <- ceiling(n_motifs / 2)
+positions_to_keep <- position_coverage >= minimum_coverage
+
+manual_consensus <- consensus_matrix[, positions_to_keep, drop = FALSE]
+manual_consensus <- sweep(manual_consensus, 2, colSums(manual_consensus), "/")
+colnames(manual_consensus) <- seq_len(ncol(manual_consensus))
+
+manual_pfm <- new("pfm", mat = manual_consensus, name = "Consensus from manual alignment")
+```
+
+```{r ppre-manual-stack, fig.width=14, fig.height=30}
+# Every individually-placed motif plotted on its own, with the PPRE template
+# on top for reference. New CIS-BP motifs get a trailing "*" in the label.
+stack_pfms <- c(
+  list(`PPRE motif` = new("pfm", mat = normalize_matrix(PPRE_mat), name = "PPRE motif")),
+  lapply(seq_len(nrow(manual_alignment)), function(i) {
+    motif_name <- manual_alignment$Motif_name[i]
+    mat <- normalize_matrix(motifs_by_name[[motif_name]]@mat)
+    if (manual_alignment$Reverse_complement[i]) mat <- reverse_complement_matrix(mat)
+    display_name <- if (motif_name %in% new_cisbp_names) paste0(motif_name, " *") else motif_name
+    new("pfm", mat = mat, name = display_name)
+  })
+)
+plotMotifLogoStack(rev(stack_pfms), fontsize = 3, yaxis = FALSE, ylab = "", font = "Arial")
+```
+
+```{r ppre-unsupervised-consensus}
+# Same 30 motifs, but pulled from the existing DNAmotifAlignment() result
+# instead of being manually placed. DNAmotifAlignment() appends "(RC)" to the
+# @name of motifs it decides to flip during alignment, so match on the name
+# with any "(RC)" suffix stripped.
+strip_rc <- function(x) sub("\\(RC\\)$", "", x)
+aligned_names <- sapply(aligned_motifs, function(m) m@name)
+unsupervised_idx <- match(strip_rc(manual_alignment$Motif_name), strip_rc(aligned_names))
+stopifnot(!any(is.na(unsupervised_idx)))
+
+unsupervised_mats <- lapply(aligned_motifs[unsupervised_idx], function(m) m@mat)
+common_width <- unique(vapply(unsupervised_mats, ncol, integer(1)))
+stopifnot(length(common_width) == 1)  # DNAmotifAlignment() pads all motifs to equal width
+
+unsupervised_stack <- array(NA_real_, dim = c(4, common_width, length(unsupervised_mats)))
+for (i in seq_along(unsupervised_mats)) unsupervised_stack[,,i] <- unsupervised_mats[[i]]
+
+unsupervised_consensus <- apply(unsupervised_stack, c(1,2), mean, na.rm = TRUE)
+unsupervised_consensus[is.nan(unsupervised_consensus)] <- 0.25
+unsupervised_consensus <- sweep(unsupervised_consensus, 2, colSums(unsupervised_consensus), "/")
+rownames(unsupervised_consensus) <- c("A","C","G","T")
+
+unsupervised_pfm <- new("pfm", mat = unsupervised_consensus, name = "Consensus from unsupervised alignment")
+```
+
+```{r ppre-reference-diagram}
+# Rendered with motifStack's own plotMotifLogo (same Cairo engine, same
+# "Information content" y-axis as panels 2/3 below), not a hand-drawn
+# reconstruction. PPRE_mat is deterministic (one base per column at
+# probability 1), so every position reaches the maximum 2 bits and the
+# letters fill the full plot height.
+ppre_pfm <- new("pfm", mat = normalize_matrix(PPRE_mat), name = "PPRE motif")
+
+# margins match panels 2/3's y-axis gutter (left = 4.1 lines); extra top
+# margin leaves room for the "PPAR motif" / "RXR motif" labels above the
+# boxes, below the "PPRE motif" title
+ppre_reference_grob <- grid::grid.grabExpr({
+  plotMotifLogo(pfm = ppre_pfm, motifName = "PPRE motif", p = ppre_pfm@background,
+                colset = ppre_pfm@color, yaxis = TRUE, ylab = "Information content", xlab = NA,
+                margins = c(1.5, 4.1, 6.5, 1.0), newpage = FALSE)
+
+  # data region occupies roughly npc [0.10, 0.98] once the y-axis gutter is
+  # accounted for; calibrated against the rendered axis tick positions
+  left_frac <- 0.10
+  right_frac <- 0.98
+  col_width <- (right_frac - left_frac) / 18
+  ppar_box <- left_frac + c(5, 11) * col_width
+  rxr_box  <- left_frac + c(12, 18) * col_width
+
+  box_bottom <- 0
+  box_top <- 0.88
+  for (box in list(ppar_box, rxr_box)) {
+    grid.rect(x = unit(mean(box), "npc"), y = unit((box_bottom + box_top) / 2, "npc"),
+              width = unit(diff(box), "npc"), height = unit(box_top - box_bottom, "npc"),
+              gp = gpar(col = "red", fill = NA, lwd = 2.5))
+  }
+  grid.text("PPAR motif", x = unit(mean(ppar_box), "npc"), y = unit(box_top + 0.03, "npc"),
+            just = c("center", "bottom"), gp = gpar(fontface = "bold", fontsize = 13))
+  grid.text("RXR motif", x = unit(mean(rxr_box), "npc"), y = unit(box_top + 0.03, "npc"),
+            just = c("center", "bottom"), gp = gpar(fontface = "bold", fontsize = 13))
+})
+
+grid.newpage()
+grid.draw(ppre_reference_grob)
+```
+
+```{r ppre-comparison-figure, fig.width=10, fig.height=12}
+panel2_grob <- grid::grid.grabExpr(
+  plotMotifLogo(manual_pfm, motifName = "Consensus from manual alignment (22 HOCOMOCO/JASPAR + 8 CIS-BP)", ylab = "Information content", margins = c(4.1, 4.1, 2.1, 0.1))
+)
+panel3_grob <- grid::grid.grabExpr(
+  plotMotifLogo(unsupervised_pfm, motifName = "Consensus from unsupervised alignment (22 HOCOMOCO/JASPAR + 8 CIS-BP)", ylab = "Information content", margins = c(4.1, 4.1, 2.1, 0.1))
+)
+
+pdf(paste0(output_directory, "/PPRE_architecture_validation_with_CISBP.pdf"), width = 10, height = 12)
+grid.arrange(ppre_reference_grob, panel2_grob, panel3_grob, ncol = 1, heights = c(1.3, 1, 1))
+dev.off()
+
+grid.arrange(ppre_reference_grob, panel2_grob, panel3_grob, ncol = 1, heights = c(1.3, 1, 1))
+```
+
+# Convert to MEME Format for FIMO Input
+
+The aligned motifs (excluding the synthetic PPRE reference) are exported as MEME files with 4 motifs per file, which are used as FIMO input. A file with only the 8 CIS-BP motifs is also written.
+
+```{r pfm-to-meme-fimo}
+# Motif order going into the MEME export, for reference against the batch files below
+motif_names
+
+write_meme(meme_list[1:4], paste0(main_project_directory, "/RXR_PPAR_combined_files_1_4.meme"), overwrite = TRUE)
+write_meme(meme_list[5:8], paste0(main_project_directory, "/RXR_PPAR_combined_files_5_8.meme"), overwrite = TRUE)
+write_meme(meme_list[9:12], paste0(main_project_directory, "/RXR_PPAR_combined_files_9_12.meme"), overwrite = TRUE)
+write_meme(meme_list[13:16], paste0(main_project_directory, "/RXR_PPAR_combined_files_13_16.meme"), overwrite = TRUE)
+write_meme(meme_list[17:20], paste0(main_project_directory, "/RXR_PPAR_combined_files_17_20.meme"), overwrite = TRUE)
+write_meme(meme_list[21:22], paste0(main_project_directory, "/RXR_PPAR_combined_files_21_22.meme"), overwrite = TRUE)
+
+# CIS-BP motifs (23-30)
+write_meme(meme_list[23:26], paste0(main_project_directory, "/RXR_PPAR_combined_files_23_26.meme"), overwrite = TRUE)
+write_meme(meme_list[27:30], paste0(main_project_directory, "/RXR_PPAR_combined_files_27_30.meme"), overwrite = TRUE)
+
+# File with only the 8 CIS-BP motifs
+write_meme(meme_list[23:30], paste0(output_directory, "/RXR_PPAR_CISBP_combined.meme"), overwrite = TRUE)
+```
+
+# Export the Canonical and Consensus Motifs for FIMO
+
+Two more motifs are exported as FIMO input, next to the 30 individual motifs:
+
+* **Canonical PPRE (DR1) motif**: the reference `ppre_motif` (`PPRE_mat`), `AGGTCA`-`AAA`-`AGGTCA`, which is not derived from the 30 motifs.
+* **Consensus (all 30) motif**: `manual_pfm`, the average of the manually aligned motifs (columns covered by fewer than half of the motifs are trimmed). The manual alignment was used instead of `unsupervised_pfm` because it anchors every motif on its `AGGTCA`-like core.
+
+```{r export-consensus-and-canonical-for-fimo}
+ppre_for_export <- ppre_motif
+ppre_for_export@name <- "PPRE_canonical"
+
+consensus_for_export <- manual_pfm
+consensus_for_export@name <- "PPRE_consensus_all30"
+
+canonical_ppre_meme <- convert_type(motifs = ppre_for_export, type = 'PPM')
+consensus_all30_meme <- convert_type(motifs = consensus_for_export, type = 'PPM')
+
+write_meme(canonical_ppre_meme, paste0(main_project_directory, "/PPRE_canonical_motif.meme"), overwrite = TRUE)
+write_meme(consensus_all30_meme, paste0(main_project_directory, "/PPRE_consensus_all30_motif.meme"), overwrite = TRUE)
+```

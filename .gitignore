@@ -1,11 +1,10 @@
+data/
 .Rproj.user/
 .Rhistory
 .RData
 .RDataTmp
 .Ruserdata
 Rplots.pdf
-texput.log
 *.Rproj
-data/
 *.fa
 *.rds

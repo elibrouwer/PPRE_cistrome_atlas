@@ -1,6 +1,0 @@
-gene,n_fimo_hits,n_in_GSM4748812,pct_in_GSM4748812,n_in_ChIPAtlas_any,pct_in_ChIPAtlas_any,n_in_ChIPAtlas_ge3exp,pct_in_ChIPAtlas_ge3exp
-ACADVL,302,0,0,0,0,0,0
-CPT1A,507,0,0,32,6.3,9,1.8
-CPT1B,269,0,0,0,0,0,0
-HADHA,164,0,0,22,13.4,3,1.8
-HADHB,191,0,0,0,0,0,0

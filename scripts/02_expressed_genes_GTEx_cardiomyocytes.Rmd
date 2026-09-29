@@ -1,0 +1,274 @@
+---
+title: "Expressed Genes in GTEx Cardiomyocytes"
+subtitle: "Filtering the GTEx single-nucleus RNA-seq atlas for downstream TSS/motif analysis"
+author: "Eli Brouwer"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: show
+    theme: cosmo
+  pdf_document: default
+---
+
+```{r global-options, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## Overview
+
+This notebook subsets the GTEx v9 single-nucleus RNA-seq atlas (8 tissues)
+to cardiomyocyte nuclei from heart tissue, and derives two gene sets used in
+downstream promoter/motif analyses:
+
+1. **Non-zero genes** — all genes with detectable mean expression in
+   cardiomyocytes.
+2. **Top 20% genes** — the most highly expressed genes by mean expression,
+   used as a stricter "confidently expressed" set.
+
+Both sets are exported with HGNC symbols and, where available, matching
+Ensembl gene IDs.
+
+## Load libraries
+
+```{r setup, echo=FALSE, results='hide'}
+library(anndata)
+library(sceasy)
+library(Seurat)
+library(BPCells)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(magrittr)
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(RColorBrewer)
+library(gridExtra)
+library(grid)
+library(ggtext)
+library(ggVennDiagram)
+library(readxl)
+library(gplots)
+library(ComplexUpset)
+library(biomaRt)
+library(arrow)
+library(data.table)
+```
+
+## Paths and parameters
+
+All input and output files are in the GTEx data directory (`data_dir`).
+
+```{r paths}
+data_dir <- "data/GTEX_single_nuclear_data"
+
+gtex_h5ad_path      <- file.path(data_dir, "GTEx_8_tissues_snRNAseq_atlas_071421.public_obs.h5ad")
+gtex_metadata_path  <- file.path(data_dir, "GTEx_8_metadata.csv")
+gtex_genes_path     <- file.path(data_dir, "GTEx_8_genes.csv")
+gtex_matrix_dir     <- file.path(data_dir, "GTEx_8_tissues_parsed")
+histogram_pdf_path  <- file.path(data_dir, "Expression_histograms.pdf")
+nonzero_csv_path    <- file.path(data_dir, "GTEx_non_zeros.csv")
+nonzero_ensembl_csv_path <- file.path(data_dir, "GTEx_non_zeros_ensembl.csv")
+top20_csv_path      <- file.path(data_dir, "GTEx_top20%.csv")
+top20_ensembl_csv_path  <- file.path(data_dir, "GTEx_top20%_ensembl.csv")
+# The "%" in the file names is kept because script 03 reads these files
+
+top_frac_threshold <- 0.20
+genes_to_annotate <- c("CPT1A", "HADHA", "HADHB", "ACADVL", "PPARG")
+
+ensembl_host <- "https://jul2023.archive.ensembl.org"
+```
+
+## Convert the AnnData matrix to BPCells format
+
+This chunk only needs to run once, to materialize the on-disk BPCells
+matrix directory used by every later chunk. It is set to `eval=FALSE` by
+default; flip to `TRUE` only if `gtex_matrix_dir` does not yet exist.
+
+```{r write-matrix, eval=FALSE}
+gtex_metadata <- read.csv(gtex_metadata_path)
+gtex_genes <- read.csv(gtex_genes_path)
+
+parse_data <- open_matrix_anndata_hdf5(gtex_h5ad_path)
+write_matrix_dir(mat = parse_data, dir = gtex_matrix_dir)
+```
+
+## Load the parsed matrix and metadata
+
+```{r load-matrix}
+gtex_metadata <- read.csv(gtex_metadata_path)
+gtex_mat <- open_matrix_dir(dir = gtex_matrix_dir)
+gtex_mat[1:5, ]
+```
+
+## Subset to cardiomyocytes
+
+```{r subset-gtex}
+gtex_object <- CreateSeuratObject(gtex_mat, meta.data = gtex_metadata)
+
+cardiac_cells <- gtex_object@meta.data[
+  grepl("Myocyte", gtex_object@meta.data$Broad.cell.type, ignore.case = TRUE) &
+  grepl("Heart", gtex_object@meta.data$Tissue.Site.Detail, ignore.case = TRUE),
+]
+
+cardiac_cells <- cardiac_cells %>% distinct(X)
+
+gtex_cardiomyocytes <- subset(gtex_object, cells = rownames(cardiac_cells))
+```
+
+## Mean expression per gene
+
+```{r mean-expression}
+expression_mat <- GetAssayData(object = gtex_cardiomyocytes, assay = "RNA", layer = "counts")
+mean_expression <- rowMeans(as.matrix(expression_mat))
+
+n_genes <- length(mean_expression)
+n_zero_genes <- sum(mean_expression == 0)
+
+hist(
+  mean_expression,
+  breaks = 1000,
+  main = "Distribution of mean expression in GTEx cardiomyocytes",
+  xlab = "Mean expression, log(TP10K+1)"
+)
+
+summary(mean_expression)
+cat(sprintf("%.1f%% of genes have zero mean expression\n", 100 * n_zero_genes / n_genes))
+```
+
+## Expression distribution at increasing thresholds
+
+Histograms of the expression distribution highlighting genes retained at
+the non-zero, top 20%, top 10%, and top 5% cutoffs, with a panel of
+reference genes annotated for orientation.
+
+```{r histograms-by-threshold}
+df_hist <- data.frame(expr = mean_expression)
+
+gene_values <- data.frame(
+  SYMBOL = genes_to_annotate,
+  value = mean_expression[genes_to_annotate]
+)
+
+thresholds <- c(none = 0.00, top20 = 0.80, top10 = 0.90, top5 = 0.95)
+
+pdf(histogram_pdf_path)
+
+for (label in names(thresholds)) {
+  cutoff <- quantile(df_hist$expr, thresholds[[label]])
+  n_above <- sum(df_hist$expr > cutoff)
+  cat(sprintf("Threshold '%s': %d genes above cutoff\n", label, n_above))
+
+  p <- ggplot(df_hist, aes(x = expr)) +
+    geom_histogram(aes(fill = expr < cutoff), bins = 1000) +
+    scale_fill_manual(values = c("FALSE" = "grey20", "TRUE" = "red")) +
+    labs(
+      title = sprintf("GTEx cardiomyocyte expression, top %g%% shown", (1 - thresholds[[label]]) * 100),
+      x = "Expression Values in log(TP10K+1)",
+      y = "Frequency"
+    ) +
+    coord_cartesian(clip = "off") +
+    theme_bw() +
+    scale_x_continuous(limits = c(0, 2), expand = c(0, 0)) +
+    scale_y_continuous(limits = c(0, 1000), expand = c(0, 0)) +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.line.x = element_line(color = "black"),
+      axis.line.y = element_line(color = "black"),
+      legend.position = "none"
+    )
+
+  for (k in seq_len(nrow(gene_values))) {
+    p <- p +
+      geom_vline(xintercept = gene_values$value[k], color = "blue", linetype = "dashed") +
+      annotate("text",
+               x = gene_values$value[k],
+               y = 40 + (k %% 3) * 90,
+               label = gene_values$SYMBOL[k],
+               angle = 90,
+               vjust = -0.5,
+               size = 3,
+               color = "blue")
+  }
+
+  print(p)
+}
+
+dev.off()
+```
+
+## Non-zero expressed genes
+
+```{r nonzero-genes}
+nonzero_genes <- mean_expression %>%
+  data.frame(expression_value = .) %>%
+  filter(expression_value != 0) %>%
+  rownames_to_column(var = "HGNC_gene_name")
+```
+
+```{r save-nonzero-genes}
+write.csv(nonzero_genes, nonzero_csv_path, row.names = FALSE)
+```
+
+## Add Ensembl IDs to non-zero genes
+
+```{r nonzero-genes-ensembl}
+ensembl_nonzero <- getBM(
+  mart = useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", host = ensembl_host),
+  attributes = c("hgnc_symbol", "ensembl_gene_id"),
+  filters = "hgnc_symbol",
+  values = nonzero_genes$HGNC_gene_name
+)
+
+nonzero_genes_ensembl <- nonzero_genes %>%
+  left_join(ensembl_nonzero, by = c("HGNC_gene_name" = "hgnc_symbol")) %>%
+  dplyr::select(HGNC_gene_name, expression_value, ensembl_gene_id) %>%
+  na.omit()
+```
+
+```{r save-nonzero-genes-ensembl}
+write.csv(nonzero_genes_ensembl, nonzero_ensembl_csv_path, row.names = FALSE)
+```
+
+## Top 20% expressed genes
+
+```{r top-x-percent}
+top_x_percent <- mean_expression %>%
+  data.frame(expression_value = .) %>%
+  top_frac(top_frac_threshold) %>%
+  rownames_to_column(var = "HGNC_gene_name")
+
+write.csv(top_x_percent, top20_csv_path, row.names = FALSE)
+
+ensembl_top_x <- getBM(
+  mart = useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", host = ensembl_host),
+  attributes = c("hgnc_symbol", "ensembl_gene_id"),
+  filters = "hgnc_symbol",
+  values = top_x_percent$HGNC_gene_name
+)
+
+top_x_percent_ensembl <- top_x_percent %>%
+  left_join(ensembl_top_x, by = c("HGNC_gene_name" = "hgnc_symbol")) %>%
+  dplyr::select(HGNC_gene_name, expression_value, ensembl_gene_id) %>%
+  na.omit()
+
+write.csv(top_x_percent_ensembl, top20_ensembl_csv_path, row.names = FALSE)
+```
+
+## Summary
+
+```{r summary-table}
+data.frame(
+  Set = c("Non-zero genes", "Non-zero genes (with Ensembl ID)",
+          sprintf("Top %g%% genes", top_frac_threshold * 100),
+          sprintf("Top %g%% genes (with Ensembl ID)", top_frac_threshold * 100)),
+  N_genes = c(nrow(nonzero_genes), nrow(nonzero_genes_ensembl),
+              nrow(top_x_percent), nrow(top_x_percent_ensembl))
+)
+```

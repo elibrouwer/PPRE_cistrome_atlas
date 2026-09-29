@@ -1,0 +1,385 @@
+---
+title: "UCSC Custom Tracks, FAM53A Multi-Track Figure, and TSS-Centered Motif Density"
+author: "Eli Brouwer"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+This script uses the FIMO hits and ChIPseeker annotation from `03_fimo_chipseeker_PPRE_score.Rmd` to make:
+
+1. **Per-motif BED files** of the promoter FIMO hits, formatted as UCSC custom tracks (one file per motif, to upload at [genome.ucsc.edu/cgi-bin/hgCustom](https://genome.ucsc.edu/cgi-bin/hgCustom)).
+2. **A multi-track figure** for the FAM53A promoter, where essentially all 30 motifs hit, showing every motif as its own row.
+3. **A TSS-centered binding density plot and heatmap**, using the `distanceToTSS` from ChIPseeker, to see whether the motifs cluster at the TSS or spread out toward the 5' UTR and further upstream.
+
+The 30 individual motifs and the 2 synthetic motifs from `01_motif_alignment.Rmd` (`PPRE_canonical`, `PPRE_consensus_all30`) were scanned in the same way, so all 32 motifs are included.
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(pacman)
+p_load(data.table, GenomicRanges, GenomeInfoDb, Gviz, ComplexHeatmap, circlize, ggplot2, tools,
+       ChIPseeker, TxDb.Hsapiens.UCSC.hg38.knownGene, org.Hs.eg.db)
+```
+
+```{r set-directory}
+project_dir <- "data/PPAR_RXR_motifs_Hocomoco_Jaspar"
+no_max_fimo_dir <- file.path(project_dir, "FIMO_results_no_max")
+fimo_batches <- c("1_4", "5_8", "9_12", "13_16", "17_20", "21_22", "23_26", "27_30")
+fimo_file_paths <- file.path(no_max_fimo_dir, fimo_batches, "fimo.tsv")
+
+# The 2 synthetic motifs (canonical DR1 and the all-30 consensus)
+extra_batches <- c("PPRE_canonical", "PPRE_consensus_all30")
+extra_fimo_paths <- file.path(no_max_fimo_dir, extra_batches, "fimo.tsv")
+extra_available <- file.exists(extra_fimo_paths)
+if (any(extra_available)) {
+  fimo_file_paths <- c(fimo_file_paths, extra_fimo_paths[extra_available])
+}
+cat(length(fimo_file_paths), "FIMO batch file(s) found (", sum(extra_available), "/ 2 extra motifs present ).\n")
+
+# Promoter annotation per motif from script 03 (used by sections 2 and 3)
+results_root <- "results"
+chip_file_directory <- file.path(results_root, "ChIPseeker_output")
+results_dir <- file.path(results_root, "fimo_analysis")
+
+bed_out_dir <- file.path(results_dir, "Bedfiles_output", "per_motif_UCSC_tracks")
+fam53a_out_dir <- file.path(results_dir, "FAM53A_multitrack")
+tss_out_dir <- file.path(results_dir, "TSS_metaplot")
+dir.create(bed_out_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(fam53a_out_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(tss_out_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+# Per-Motif UCSC Custom Track BED Files
+
+Each motif's BED file is built from its ChIPseeker annotation (`chip_file_directory/<motif>.txt`, promoter hits within -3000/+1000 of the TSS), so the tracks use the same promoter window as the figures below. Each file has its own `track` header line for UCSC's ["Add Custom Tracks"](https://genome.ucsc.edu/cgi-bin/hgCustom) page (assembly: **hg38**). Scores are clipped to the BED range of 0-1000 (`useScore=1` shades each feature by it).
+
+```{r bedfile-per-motif}
+export_motif_promoter_bed <- function(motif_id, out_dir) {
+  path <- file.path(chip_file_directory, paste0(motif_id, ".txt"))
+  df <- read.delim(path, sep = " ", header = TRUE, check.names = FALSE)
+  dt <- as.data.table(df)
+
+  bed <- data.frame(
+    chrom      = dt$seqnames,
+    chromStart = dt$start - 1L,
+    chromEnd   = dt$end,
+    name       = motif_id,
+    score      = pmin(pmax(round(dt$score), 0), 1000),
+    strand     = dt$strand
+  )
+  bed <- bed[order(bed$chrom, bed$chromStart), ]
+  out_file <- file.path(out_dir, paste0(motif_id, ".bed"))
+  track_line <- sprintf(
+    'track name="%s" description="%s FIMO hits (hg38, promoter-restricted: -3000/+1000 of TSS)" visibility=2 useScore=1',
+    motif_id, motif_id)
+  writeLines(track_line, out_file)
+  fwrite(bed, out_file, sep = "\t", col.names = FALSE, append = TRUE, quote = FALSE)
+  nrow(bed)
+}
+
+bed_motif_ids <- file_path_sans_ext(basename(list.files(chip_file_directory, pattern = "\\.txt$")))
+bed_hit_counts <- sapply(bed_motif_ids, export_motif_promoter_bed, out_dir = bed_out_dir)
+cat("Wrote", length(bed_motif_ids), "per-motif BED files to", bed_out_dir,
+    "(", sum(bed_hit_counts), "total promoter-restricted hits )\n")
+
+# Concatenating all per-motif files (each already carries its own `track` line) into one
+# file lets UCSC's custom-track uploader register every motif as a separate track from a
+# single upload, instead of doing 30 (or 32) separate uploads.
+combined_bed <- file.path(bed_out_dir, paste0("all_", length(bed_motif_ids), "_motifs_UCSC_multitrack.bed"))
+file.create(combined_bed)
+for (mid in bed_motif_ids) {
+  file.append(combined_bed, file.path(bed_out_dir, paste0(mid, ".bed")))
+}
+cat("Combined multi-track file:", combined_bed, "\n")
+```
+
+# FAM53A Promoter Multi-Track Figure
+
+FAM53A (chr4, minus strand, TSS at the 3' end of `ENST00000461064.5`, `geneEnd = 1,668,905`) is used as the example promoter, because most of the 30 motifs have at least one hit inside its `[-3000, +1000]` promoter window (the count is printed below). One row is drawn per motif, colored by TF family, over the same promoter window that ChIPseeker used.
+
+```{r fam53a-window}
+# FAM53A has several overlapping transcripts in TxDb.Hsapiens.UCSC.hg38.knownGene and ChIPseeker
+# assigns each hit to the nearest one, so the transcript with the most hits is used as the reference
+# (ENST00000461064.5, geneStart = 1,640,495 / geneEnd = 1,668,905, 56% of the 386 promoter hits)
+motif_files_probe <- list.files(chip_file_directory, pattern = "\\.txt$", full.names = TRUE)
+fam53a_all_rows <- rbindlist(lapply(motif_files_probe, function(f) {
+  df <- read.delim(f, sep = " ", header = TRUE, check.names = FALSE)
+  dt <- as.data.table(df)
+  dt[SYMBOL == "FAM53A", .(transcriptId, geneStart, geneEnd, geneStrand)]
+}), use.names = TRUE)
+transcript_counts <- fam53a_all_rows[, .N, by = .(transcriptId, geneStart, geneEnd, geneStrand)][order(-N)]
+cat("FAM53A transcripts seen across all motifs' promoter hits:\n")
+print(transcript_counts)
+fam53a_gene_row <- transcript_counts[1]
+gene_start <- fam53a_gene_row$geneStart
+gene_end <- fam53a_gene_row$geneEnd
+gene_strand <- if (fam53a_gene_row$geneStrand == 2) "-" else "+"
+
+tss_region <- c(-3000, 1000)  # same window as the annotatePeak() call in script 03
+tss <- if (gene_strand == "-") gene_end else gene_start
+window_start <- if (gene_strand == "-") tss - tss_region[2] else tss + tss_region[1]
+window_end   <- if (gene_strand == "-") tss - tss_region[1] else tss + tss_region[2]
+cat("FAM53A promoter window: chr4:", window_start, "-", window_end, " (TSS =", tss, ", strand", gene_strand, ")\n")
+```
+
+```{r fam53a-load-hits}
+motif_files <- list.files(chip_file_directory, pattern = "\\.txt$", full.names = TRUE)
+motif_ids <- file_path_sans_ext(basename(motif_files))
+
+# read.delim() is used because the files were written with row names, so the header has one field less than the data rows
+read_promoter_file <- function(path, mid) {
+  df <- read.delim(path, sep = " ", header = TRUE, check.names = FALSE)
+  dt <- as.data.table(df)[, c("start", "end", "strand", "distanceToTSS", "SYMBOL")]
+  dt[, motif_id := mid]
+  dt
+}
+all_promoter_hits <- rbindlist(Map(read_promoter_file, motif_files, motif_ids), use.names = TRUE)
+fam53a_hits <- all_promoter_hits[SYMBOL == "FAM53A"]
+cat("FAM53A promoter hits:", nrow(fam53a_hits), "across", uniqueN(fam53a_hits$motif_id), "/", length(motif_ids), "motifs\n")
+```
+
+```{r fam53a-multitrack, fig.width=10, fig.height=16}
+# TF-family lookup by exact motif_id, matching the `Family` groupings already used in
+# 01_motif_alignment.Rmd. A regex like `^PPARG` works for the
+# HOCOMOCO/CIS-BP motif_ids (e.g. "PPARG.H13CORE.0.P.B") but NOT for JASPAR's accession-style
+# ids (e.g. "MA0066.1" is PPARG, "MA1550.1" is PPARD, "MA0855.1"/"MA1555.1" are RXRB,
+# "MA0856.1"/"MA1556.1" are RXRG) - those need to be listed explicitly, so all 30 are here.
+family_lookup <- c(
+  "MA1148.1" = "PPAR::RXR", "MA1148.2" = "PPAR::RXR", "MA0065.1" = "PPAR::RXR",
+  "PPARA.H13CORE.0.P.B" = "PPARA", "PPARA.H13CORE.1.P.B" = "PPARA", "PPARA_M12541_3.10" = "PPARA",
+  "PPARD.H13CORE.0.PSM.A" = "PPARD", "MA1550.1" = "PPARD", "MA1550.2" = "PPARD",
+  "PPARD_M05794_3.10" = "PPARD", "PPARD_M05796_3.10" = "PPARD",
+  "PPARG.H13CORE.0.P.B" = "PPARG", "PPARG.H13CORE.1.P.B" = "PPARG", "MA0066.1" = "PPARG",
+  "MA0066.2" = "PPARG", "PPARG_M12496_3.10" = "PPARG", "PPARG_M12497_3.10" = "PPARG",
+  "PPARG_M12498_3.10" = "PPARG",
+  "RXRA.H13CORE.0.PS.A" = "RXRA", "RXRA.H13CORE.1.S.C" = "RXRA", "RXRA.H13CORE.2.SM.B" = "RXRA",
+  "RXRA.H13CORE.3.P.B" = "RXRA", "RXRA_M03621_3.10" = "RXRA", "RXRA_M03623_3.10" = "RXRA",
+  "RXRB.H13CORE.0.P.C" = "RXRB", "RXRB.H13CORE.1.SM.B" = "RXRB", "MA0855.1" = "RXRB", "MA1555.1" = "RXRB",
+  "MA0856.1" = "RXRG", "MA1556.1" = "RXRG",
+  # The 2 synthetic motifs get their own family and color, they are not measured motifs
+  "PPRE_canonical" = "Canonical DR1", "PPRE_consensus_all30" = "Consensus (all 30)"
+)
+family_of <- function(mid) unname(ifelse(mid %in% names(family_lookup), family_lookup[mid], "other"))
+family_colors <- c(PPARA = "#e41a1c", PPARD = "#377eb8", PPARG = "#4daf4a",
+                    RXRA = "#ff7f00", RXRB = "#984ea3", RXRG = "#a65628",
+                    `PPAR::RXR` = "#000000", `Canonical DR1` = "#17becf",
+                    `Consensus (all 30)` = "#bcbd22", other = "grey50")
+family_order <- c("PPAR::RXR", "PPARA", "PPARD", "PPARG", "RXRA", "RXRB", "RXRG",
+                   "Canonical DR1", "Consensus (all 30)")
+
+motif_meta <- data.table(motif_id = motif_ids, family = sapply(motif_ids, family_of))
+motif_meta[, family := factor(family, levels = family_order)]
+setorder(motif_meta, family, motif_id)
+
+tracks <- list(GenomeAxisTrack())
+for (mid in motif_meta$motif_id) {
+  sub <- fam53a_hits[motif_id == mid]
+  col <- unname(family_colors[family_of(mid)])
+  gr <- GRanges(seqnames = rep("chr4", nrow(sub)),
+                ranges = IRanges(start = sub$start, end = sub$end),
+                strand = if (nrow(sub) == 0) character(0) else sub$strand)
+  seqlevels(gr) <- "chr4"
+  tracks[[length(tracks) + 1]] <- AnnotationTrack(
+    range = gr, chromosome = "chr4", genome = "hg38",
+    name = mid, fill = col, col = col, stacking = "dense"
+  )
+}
+
+# plotTracks() has no legend for per-track colors, so it is drawn manually with grid
+library(grid)
+draw_family_legend <- function(colors, order, present_families) {
+  fams <- order[order %in% present_families]
+  n <- length(fams)
+  box_w <- 0.16; box_h <- 0.016 * n + 0.014
+  x0 <- 0.99 - box_w; y0 <- 0.995
+  grid.rect(x = unit(x0 + box_w / 2, "npc"), y = unit(y0 - box_h / 2, "npc"),
+            width = unit(box_w, "npc"), height = unit(box_h, "npc"),
+            gp = gpar(fill = "white", col = "black", lwd = 0.5))
+  grid.text("Motif family", x = unit(x0 + 0.01, "npc"), y = unit(y0 - 0.009, "npc"),
+            just = "left", gp = gpar(fontsize = 8, fontface = "bold"))
+  for (i in seq_along(fams)) {
+    y <- y0 - 0.024 - (i - 1) * 0.016
+    grid.rect(x = unit(x0 + 0.014, "npc"), y = unit(y, "npc"),
+              width = unit(0.012, "npc"), height = unit(0.012, "npc"),
+              gp = gpar(fill = unname(colors[fams[i]]), col = NA))
+    grid.text(fams[i], x = unit(x0 + 0.026, "npc"), y = unit(y, "npc"),
+              just = "left", gp = gpar(fontsize = 7.5))
+  }
+}
+present_families <- unique(as.character(motif_meta$family))
+
+pdf(file.path(fam53a_out_dir, "FAM53A_promoter_multitrack.pdf"), width = 10, height = 16)
+plotTracks(tracks, from = window_start, to = window_end, chromosome = "chr4",
+           background.title = "white", col.title = "black", col.axis = "black",
+           fontsize = 9, cex.title = 0.7, title.width = 2.2)
+draw_family_legend(family_colors, family_order, present_families)
+dev.off()
+
+plotTracks(tracks, from = window_start, to = window_end, chromosome = "chr4",
+           background.title = "white", col.title = "black", col.axis = "black",
+           fontsize = 9, cex.title = 0.7, title.width = 2.2)
+draw_family_legend(family_colors, family_order, present_families)
+```
+
+# TSS-Centered Motif Binding Density
+
+Using `distanceToTSS` from every motif's promoter-filtered ChIPseeker output (i.e. every
+FIMO hit that already fell inside some gene's `[-3000, +1000]` promoter window, genome-wide,
+not just FAM53A), binned into 100 bp bins to see whether hits cluster right at the TSS,
+spread into the 5' UTR (positive distances), or sit further upstream.
+
+All 32 motifs (including `PPRE_canonical` and `PPRE_consensus_all30`) are pooled.
+
+```{r tss-density-real-only}
+tss_density_hits <- all_promoter_hits
+tss_density_motif_ids <- motif_ids
+cat("TSS-density analysis uses all", length(tss_density_motif_ids), "motifs\n")
+```
+
+```{r tss-density-overview, fig.width=8, fig.height=5}
+p_density <- ggplot(as.data.frame(tss_density_hits), aes(x = distanceToTSS)) +
+  geom_density(fill = "steelblue", alpha = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(x = "Distance to TSS (bp)", y = "Density",
+       title = paste0("PPAR/RXR motif hit density around annotated TSS (",
+                       length(tss_density_motif_ids), " motifs pooled, unmasked genome)")) +
+  theme_minimal()
+ggsave(file.path(tss_out_dir, "TSS_density_overview.pdf"), p_density, width = 8, height = 5)
+p_density
+```
+
+```{r tss-density-heatmap, fig.width=9, fig.height=8}
+# Unlike the density plot above, this keeps all 32 motifs (incl. PPRE_canonical /
+# PPRE_consensus_all30) - the row-normalized heatmap already shows each motif's own shape
+# on its own row, so a background-model mismatch between motifs shows up as a visibly
+# different row rather than distorting a shared pooled curve the way it would in a density
+# plot with everything summed together.
+bin_width <- 100
+breaks <- seq(tss_region[1], tss_region[2], by = bin_width)
+bin_mids <- breaks[-length(breaks)] + bin_width / 2
+
+hits_binned <- copy(all_promoter_hits)
+hits_binned[, bin := cut(distanceToTSS, breaks = breaks, include.lowest = TRUE, labels = FALSE)]
+count_mat <- dcast(hits_binned[!is.na(bin)], motif_id ~ bin, fun.aggregate = length, value.var = "bin", fill = 0)
+mat_motif_ids <- count_mat$motif_id
+count_mat[, motif_id := NULL]
+m <- as.matrix(count_mat)
+rownames(m) <- mat_motif_ids
+
+full_cols <- as.character(seq_len(length(breaks) - 1))
+missing_cols <- setdiff(full_cols, colnames(m))
+if (length(missing_cols) > 0) {
+  m <- cbind(m, matrix(0, nrow(m), length(missing_cols), dimnames = list(rownames(m), missing_cols)))
+}
+m <- m[, full_cols, drop = FALSE]
+colnames(m) <- bin_mids
+
+# Row-normalized: the *shape* of each motif's distribution around the TSS, independent of
+# how many total promoter hits that motif has (which varies ~10x across the 30 motifs).
+row_norm <- m / rowSums(m)
+
+pdf(file.path(tss_out_dir, "TSS_density_heatmap.pdf"), width = 9, height = 8)
+ht <- Heatmap(row_norm, name = "fraction of\nmotif's hits",
+              cluster_columns = FALSE, cluster_rows = TRUE,
+              col = colorRamp2(c(0, max(row_norm)), c("white", "firebrick")),
+              column_title = "Distance to TSS (bp)",
+              row_names_gp = grid::gpar(fontsize = 7),
+              heatmap_legend_param = list(title_gp = grid::gpar(fontsize = 8)))
+draw(ht)
+dev.off()
+
+draw(ht)
+```
+
+The heatmap and density plot both show a sharp, shared peak within ~100 bp of the TSS
+across nearly all `r length(motif_ids)` motifs, essentially all landing in the *same* few
+bins despite very different PWM lengths, half-site spacing and TF families. That similarity
+-- not just the peak's existence - is the reason this is checked against a control below
+before reading it as PPAR/RXR-specific biology: motifs that differ that much converging on
+the exact same position is at least as consistent with something shared by all 30 (local
+promoter sequence composition, or annotation density near well-annotated TSSs) as with 30
+independent, sequence-specific enrichments.
+
+## Control: Column-Shuffled Motif
+
+To test this, the columns of the `PPRE_consensus_all30_motif.meme` PWM were shuffled 3 times. This keeps the base composition and information content but destroys the `AGGTCA`-spacer-`AGGTCA` pattern. The shuffled motifs were scanned genome-wide with the same FIMO settings and annotated with the same ChIPseeker call as the real motifs. If the peak at the TSS is specific to PPAR/RXR sequences, the shuffled control should not show it.
+
+```{r control-shuffled-motif, eval=FALSE}
+# Not run when knitting, FIMO was run separately (see the command below)
+library(universalmotif)
+cons <- read_meme(file.path(project_dir, "PPRE_consensus_all30_motif.meme"))
+if (is.list(cons)) cons <- cons[[1]]
+set.seed(42)
+make_shuffled <- function(template, name) {
+  m <- template
+  m@motif <- template@motif[, sample(ncol(template@motif))]
+  colnames(m@motif) <- NULL
+  m@name <- name
+  m
+}
+shuf_motifs <- list(make_shuffled(cons, "SHUFFLED_CONSENSUS_1"),
+                     make_shuffled(cons, "SHUFFLED_CONSENSUS_2"),
+                     make_shuffled(cons, "SHUFFLED_CONSENSUS_3"))
+write_meme(shuf_motifs, file.path(project_dir, "control_shuffled_consensus.meme"), overwrite = TRUE)
+
+# Then, from a WSL shell in the same working directory as the other 32 motifs:
+#   fimo --thresh 1e-4 --max-stored-scores 20000000 --bgfile genome_bg_order0.txt \
+#     --oc FIMO_results_no_max/FIMO_results_control_shuffled control_shuffled_consensus.meme \
+#     Homo_sapiens.GRCh38.dna.primary_assembly.fa
+```
+
+```{r control-annotate-compare, fig.width=8, fig.height=5}
+control_fimo_path <- file.path(no_max_fimo_dir, "FIMO_results_control_shuffled", "fimo.tsv")
+
+if (!file.exists(control_fimo_path)) {
+  cat("Control fimo.tsv not found at", control_fimo_path,
+      "-- run the control-shuffled-motif chunk above (in WSL) first.\n")
+} else {
+  fimo_ctrl <- fread(control_fimo_path, sep = "\t", header = TRUE, fill = TRUE, colClasses = "character",
+                      select = c("motif_id", "sequence_name", "start", "stop", "strand", "score"))
+  fimo_ctrl <- fimo_ctrl[!is.na(start) & start != "" & !startsWith(motif_id, "#")]
+  fimo_ctrl[, `:=`(start = as.integer(start), stop = as.integer(stop), score = as.numeric(score))]
+
+  gr_ctrl <- GRanges(seqnames = fimo_ctrl$sequence_name,
+                      ranges = IRanges(start = fimo_ctrl$start, end = fimo_ctrl$stop),
+                      strand = fimo_ctrl$strand, score = fimo_ctrl$score, motif_id = fimo_ctrl$motif_id)
+  seqlevelsStyle(gr_ctrl) <- "UCSC"
+
+  peaks_ctrl <- annotatePeak(gr_ctrl, tssRegion = tss_region, TxDb = TxDb.Hsapiens.UCSC.hg38.knownGene,
+                              annoDb = "org.Hs.eg.db", sameStrand = TRUE, verbose = FALSE)
+  peaks_ctrl_df <- as.data.frame(peaks_ctrl)
+  control_promoter_hits <- peaks_ctrl_df[grepl("Promoter", peaks_ctrl_df$annotation), ]
+
+  cat("Control (shuffled) raw genome-wide hits:", nrow(fimo_ctrl), "\n")
+  cat("Control promoter-filtered hits:", nrow(control_promoter_hits),
+      sprintf(" (%.1f%% of raw)\n", 100 * nrow(control_promoter_hits) / nrow(fimo_ctrl)))
+
+  frac_near_tss <- function(x) mean(abs(x) <= 200)
+  cat("Fraction of promoter hits within +/-200bp of TSS - real:",
+      round(frac_near_tss(all_promoter_hits$distanceToTSS), 4),
+      " | shuffled control:", round(frac_near_tss(control_promoter_hits$distanceToTSS), 4), "\n")
+
+  compare_df <- rbind(
+    data.frame(distanceToTSS = all_promoter_hits$distanceToTSS,
+               group = paste0("Real PPAR/RXR motifs (n=", length(motif_ids), ")")),
+    data.frame(distanceToTSS = control_promoter_hits$distanceToTSS, group = "Shuffled control (n=3)")
+  )
+  p_control <- ggplot(compare_df, aes(x = distanceToTSS, fill = group, colour = group)) +
+    geom_density(alpha = 0.35, linewidth = 0.8) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    labs(x = "Distance to TSS (bp)", y = "Density",
+         title = "Real PPAR/RXR motifs vs. column-shuffled control",
+         subtitle = "Same genome, same FIMO threshold/background, same ChIPseeker promoter window") +
+    theme_minimal() + theme(legend.position = "bottom", legend.title = element_blank())
+  ggsave(file.path(tss_out_dir, "TSS_density_real_vs_shuffled_control.pdf"), p_control, width = 8, height = 5)
+  p_control
+}
+```
+
+**Result: the shuffled control shows the same peak at the TSS as the real motifs**, slightly sharper if anything. 13.3% of the raw shuffled hits (111,968/846,418) were in a promoter, against 10.6% for the real motifs (1,695,076/15,945,409), and 30.1% of the shuffled promoter hits were within +/-200 bp of the TSS, against 24.0% for the real motifs. The two density curves are almost identical.
+
+The peak at the TSS is therefore not evidence that the PPRE motifs are specifically enriched at the TSS. It is more likely caused by the local sequence composition around TSSs (CpG islands differ from the order-0 genome background used by FIMO) and by the high density of overlapping transcript annotations at TSSs. This analysis also only includes hits that ChIPseeker annotated as promoter, so it cannot say whether PPAR/RXR binding is promoter-proximal or distal. A background matched on composition or dinucleotides, or a permutation test of the hit positions within promoters, would be needed to draw conclusions about positional preference.
