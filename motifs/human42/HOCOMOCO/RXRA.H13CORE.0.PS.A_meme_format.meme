@@ -1,0 +1,21 @@
+MEME version 4
+
+ALPHABET= ACGT
+
+strands: + -
+
+Background letter frequencies
+A 0.25 C 0.25 G 0.25 T 0.25
+
+MOTIF RXRA.H13CORE.0.PS.A
+letter-probability matrix: alength= 4 w= 9 nsites= 1000
+0.163	0.419	0.239	0.179
+0.441	0.211	0.149	0.199
+0.355	0.03	0.5820000000000001	0.033
+0.6930000000000001	0.003	0.301	0.003
+0.007	0.002	0.988	0.003
+0.002	0.008	0.823	0.167
+0.003	0.032	0.109	0.856
+0.002	0.939	0.014	0.045
+0.987	0.0	0.011	0.002
+URL https://hocomoco13.autosome.org/motif/RXRA.H13CORE.0.PS.A

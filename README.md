@@ -11,6 +11,29 @@ The single-nucleus RNA-seq analysis of the cardiomyocyte subpopulations is in [P
 3. The hits are annotated with ChIPseeker (3 kb upstream to 1 kb downstream of the TSS) and overlapped with genes expressed in GTEx cardiomyocytes.
 4. Every gene gets a PPRE score, which is the FIMO score weighted by an exponential decay of the distance to the TSS. The sum, mean, median and maximum per gene are calculated.
 
+## Update: 42 human-source motifs (branch `human42-motif-update`)
+
+The 30-motif set described above was replaced by a systematically assembled set. All PPAR, RXR and PPAR:RXR position weight matrices were retrieved from JASPAR 2026 (CORE, all versions), HOCOMOCO (CORE, v13, identical to v14 for these TFs) and CIS-BP 3.10 (direct evidence, human TFs; three Transfac matrices are not published). This gave 71 motifs (`motifs/PPAR_RXR_all_motifs_combined.meme`, inventory in `results/motif_selection/motif_inventory.csv`).
+
+Motifs whose data come from mouse, or whose species is unclear, were excluded (`results/motif_selection/motif_inventory_excluded_mouse_unclear.csv`). The species of each motif comes from JASPAR and HOCOMOCO annotation; for CIS-BP it is inferred from the source study and flagged as such in `species_basis`. **The final set is 42 human-source motifs** (11 JASPAR, 6 HOCOMOCO, 25 CIS-BP; `motifs/human42/`, `results/motif_selection/motif_inventory_human_only.csv`).
+
+Quality and redundancy of the set were characterised before scanning (`scripts/00_motif_selection/`): fraction of exact zeros (sparse matrices are flagged), half-site architecture (DR1, IR0, IR3, single half-site), and pairwise similarity with clustering (`motif_inventory_gates.csv`, `motif_pairwise_similarity.csv`, `gate2_redundancy_heatmap_human42.png`). All 42 motifs are scanned and every hit is kept; cluster assignments are provided so that redundancy can be handled when scoring (16 clusters at r >= 0.98, `scoring_set_r098_representatives.csv`).
+
+| Step | File |
+|---|---|
+| Motif retrieval and selection | `scripts/00_motif_selection/` (`jaspar_query.py`, `build_motif_set.py`, `gates.py`, `plot_gate2.py`) |
+| Alignment and consensus. The rule-based ("manual") placement reproduces the hand-curated start columns and orientations for the 15 motifs shared with the 30-motif set (15/15). The unsupervised `DNAmotifAlignment()` result depended on the order in which motifs were passed in when it was allowed to reverse-complement (1 to 10 flipped motifs, consensus 3.1 to 6.3 bits), so motifs are oriented by the half-site rule first and the aligner runs with `revcomp = FALSE`; thresholds 0.2 to 0.6 then give identical results and 0.5 is kept (`alignment_threshold_and_order_test.txt`) | `scripts/01b_motif_alignment_human42.Rmd`, `results/motif_alignment_human42/` (`manual_alignment_human42_stack.pdf`, `aligned_motifs_human42_threshold0.5_preoriented.pdf`, `PPRE_architecture_validation_human42_preoriented.pdf`, `manual_alignment_human42.csv`) |
+| FIMO | `motifs/fimo_batches/run_fimo_human42_unmasked.sh`: unmasked GRCh38 primary assembly, `--thresh 1e-4`, `--max-stored-scores 20000000`, order-0 genome background, 11 batches of 4 motifs (MEME Suite 5.5.7). 45,704,060 hits in total |
+| FIMO summary per motif | `scripts/06_fimo_human42_summary.py`, `results/fimo_human42/fimo_hits_per_motif.csv` (the raw `fimo.tsv` files are about 3.4 GB and are not stored here) |
+| ChIPseeker annotation and PPRE score | `scripts/03b_fimo_chipseeker_PPRE_score_human42.Rmd` (generated from script 03 by `scripts/00_motif_selection/make_03b_human42.py`; the only changes are the motif set and `sameStrand = FALSE`, so hits on either strand are assigned to the nearest TSS) |
+| Final motif table | `results/motif_selection/Table_S1_final_42_human_source_motifs.csv` |
+
+Output of `scripts/03b_...` is in `results/human42_pipeline/fimo_analysis/` (per-motif table `motif_results_table.xlsx`, motif overlap heatmaps, statistics plots, GTEx overlap `Motifs_GTEX_cm_expressed.csv`: 15,713 cardiomyocyte-expressed genes with at least one promoter hit, PPRE score histograms, ORA). The per-motif ChIPseeker tables (1.5 GB) and the bed file with all 45.7 million hits (2.3 GB) are not in the repository. The per-motif hit and gene counts are not comparable with the earlier 30-motif tables: this run uses the unmasked genome, 42 motifs and `sameStrand = FALSE`.
+
+Note that very short motifs cannot reach small p-values: for example the 8 bp motif `RXRA_M08962_3.10` has no hit at p <= 1e-5, so per-motif p-value tiers are not comparable across widths.
+
+The sections below describe the earlier 30-motif run; scripts 02 to 05 have not been rerun for the new motif set unless stated in the results folders.
+
 ## Scripts
 
 Run the scripts in this order, from the root of the repository.

@@ -1,0 +1,27 @@
+DNAmotifAlignment threshold and input-order test, 42 human-source motifs (+ PPRE reference), minimalConsensus = 6
+Metrics: n_rc = motifs flipped by the aligner; frac_with_plus_halfsite = share of motifs with an RGGTCA half-site on the plus strand;
+frac_halfsites_in_top3_cols = share of half-sites in the 3 most common columns; consensus_total_IC = information content (bits) of the mean consensus.
+
+== threshold test (default = aligner may reverse-complement; pre-oriented = rule-based orientation, revcomp = FALSE) ==
+th=0.2 default(revcomp=TRUE)        n_rc 20 | frac_with_plus_halfsite 0.643 | frac_halfsites_in_top3_cols 0.9 | consensus_total_IC 2.84 | max_col_IC 0.44
+th=0.2 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.3 default(revcomp=TRUE)        n_rc 1 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.3 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.4 default(revcomp=TRUE)        n_rc 22 | frac_with_plus_halfsite 0.643 | frac_halfsites_in_top3_cols 0.975 | consensus_total_IC 4.22 | max_col_IC 0.58
+th=0.4 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.5 default(revcomp=TRUE)        n_rc 1 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.5 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.6 default(revcomp=TRUE)        n_rc 1 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.6 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29 | max_col_IC 0.82
+th=0.8 default(revcomp=TRUE)        n_rc 5 | frac_with_plus_halfsite 0.976 | frac_halfsites_in_top3_cols 0.453 | consensus_total_IC 2.31 | max_col_IC 0.34
+th=0.8 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.561 | consensus_total_IC 3.19 | max_col_IC 0.5
+th=1.0 default(revcomp=TRUE)        n_rc 2 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.455 | consensus_total_IC 2.29 | max_col_IC 0.24
+th=1.0 pre-oriented(revcomp=FALSE)  n_rc 0 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.455 | consensus_total_IC 2.36 | max_col_IC 0.25
+
+== input-order test at threshold 0.5, default revcomp = TRUE ==
+order=sheet     n_rc 1 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29
+order=display   n_rc 8 | frac_with_plus_halfsite 0.881 | frac_halfsites_in_top3_cols 0.643 | consensus_total_IC 3.12
+order=reversed  n_rc 1 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.909 | consensus_total_IC 6.29
+order=random1   n_rc 10 | frac_with_plus_halfsite 0.833 | frac_halfsites_in_top3_cols 0.796 | consensus_total_IC 4.29
+order=random2   n_rc 6 | frac_with_plus_halfsite 0.905 | frac_halfsites_in_top3_cols 0.7 | consensus_total_IC 3.89
+order=random3   n_rc 1 | frac_with_plus_halfsite 1 | frac_halfsites_in_top3_cols 0.758 | consensus_total_IC 4.34

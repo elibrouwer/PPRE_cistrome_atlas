@@ -8,3 +8,8 @@ Rplots.pdf
 *.Rproj
 *.fa
 *.rds
+# large local outputs of the 42-motif run (not pushed)
+results/human42_pipeline_full_local/
+**/fimo.tsv
+**/cisml.xml
+**/fimo.gff

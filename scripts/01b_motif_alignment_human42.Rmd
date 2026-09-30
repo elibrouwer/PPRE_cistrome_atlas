@@ -1,0 +1,359 @@
+---
+title: "PPAR/RXR Motif Alignment (42 human-source motifs)"
+author: "Eli Brouwer"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+This replaces `Objective1_motif_alignment_CISBP_additions.Rmd` for the final run. The motif set is
+the 42 human-source PPAR/RXR position weight matrices (11 JASPAR 2026, 6 HOCOMOCO CORE, 25 CIS-BP 3.10)
+selected in `Motifs_update_2026-09-30/` (mouse-derived and unclear-species motifs were excluded).
+The plotting, canvas and export functions are reused from the earlier script; what changed is
+
+* the loader (one combined MEME file, selected by `motif_inventory_human_only.csv`),
+* the display order (derived from the inventory instead of typed by hand), and
+* the manual alignment table: start column and orientation are now **derived by rule** for every
+  motif (see below) and validated against the hand-curated table for the 15 motifs that both
+  sets share.
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tools)
+library(DiffLogo)
+library(TFBSTools)
+library(motifStack)
+library(Cairo)
+library(universalmotif)
+library(gridExtra)
+library(grid)
+```
+
+```{r set-directory}
+# Change motif_dir if the repository is checked out somewhere else.
+motif_dir <- "C:/Users/brouw/OneDrive - Universiteit Utrecht/Master Bioinformatics/Minor internship/PPAR_RXR_motifs_Hocomoco_Jaspar/Motifs_update_2026-09-30"
+output_directory <- file.path(motif_dir, "alignment_human42")
+meme_export_directory <- file.path(output_directory, "meme_export")
+dir.create(meme_export_directory, recursive = TRUE, showWarnings = FALSE)
+```
+
+# Load the 42 motifs
+
+```{r load}
+inv <- read.csv(file.path(motif_dir, "motif_inventory_human_only.csv"),
+                check.names = FALSE, fileEncoding = "UTF-8-BOM", stringsAsFactors = FALSE)
+pfm_list <- importMatrix(file.path(motif_dir, "PPAR_RXR_human_only_combined.meme"))
+names(pfm_list) <- sapply(pfm_list, function(m) m@name)
+stopifnot(setequal(names(pfm_list), inv$motif_id), nrow(inv) == 42)
+
+# display order: heterodimers, then PPARA, PPARD, PPARG, RXRA, RXRB, RXRG;
+# within a group JASPAR, HOCOMOCO, CIS-BP
+group_of <- ifelse(inv$category == "PPAR:RXR heterodimer", "BOTH", toupper(inv$name))
+group_rank <- match(group_of, c("BOTH", "PPARA", "PPARD", "PPARG", "RXRA", "RXRB", "RXRG"))
+db_rank <- match(sub(" .*", "", inv$database), c("JASPAR", "HOCOMOCO", "CIS-BP"))
+inv <- inv[order(group_rank, db_rank, inv$motif_id), ]
+inv$Family <- ifelse(grepl("::", inv$name), "BOTH", ifelse(grepl("^PPAR", toupper(inv$name)), "PPAR", "RXR"))
+
+# motifs that were not part of the earlier 30-motif run get a trailing "*"
+new_names <- inv$motif_id[inv$status == "NEW"]
+pfm_list <- pfm_list[inv$motif_id]
+```
+
+# Reference PPRE motif
+
+A canonical PPRE (DR1) motif is the template: `AAAT`-`CAGGTCA`-`A`-`AGGTCA`, PPAR half-site under
+columns 6-11 and RXR half-site under columns 13-18.
+
+```{r ppre-reference-motif}
+PPRE_mat <- matrix(c(
+  1,1,1,0,0,1,0,0,0,0,1,1,1,0,0,0,0,1,  # A
+  0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,  # C
+  0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,  # G
+  0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0   # T
+), nrow = 4, byrow = TRUE)
+rownames(PPRE_mat) <- c("A", "C", "G", "T")
+ppre_motif <- new("pfm", mat = PPRE_mat, name = "PPRE motif")
+```
+
+# Rule-based manual alignment
+
+The earlier `manual_alignment` table was typed by hand (start column and reverse-complement flag per
+motif, anchored on the `AGGTCA`-like core). For 42 motifs this is done by rule instead:
+
+1. score every 6-mer window against `RGGTCA` (probability mass on the allowed bases, averaged over
+   the six positions) on both strands;
+2. call half-sites (score >= 0.6, non-overlapping);
+3. orient the motif so that as many half-sites as possible read `RGGTCA` on the plus strand
+   (ties keep the stored orientation);
+4. anchor the **first** half-site of PPAR motifs and heterodimers under canvas column 6 and the
+   **last** half-site of RXR motifs under column 13 (the two boxes of the PPRE template);
+5. shift the whole canvas so that the smallest start column is 1.
+
+```{r rule-based-alignment}
+normalize_matrix <- function(mat) {
+  mat <- mat[c("A", "C", "G", "T"), , drop = FALSE]
+  mat[is.na(mat)] <- 0
+  totals <- colSums(mat)
+  informative <- totals > 0
+  if (any(informative)) mat[, informative] <- sweep(mat[, informative, drop = FALSE], 2, totals[informative], "/")
+  mat
+}
+reverse_complement_matrix <- function(mat) {
+  mat <- mat[c("T", "G", "C", "A"), ncol(mat):1, drop = FALSE]
+  rownames(mat) <- c("A", "C", "G", "T")
+  mat
+}
+place_on_canvas <- function(mat, start, canvas_width) {
+  end <- start + ncol(mat) - 1
+  if (start < 1 || end > canvas_width) stop("Motif does not fit on canvas: ", start, "-", end)
+  canvas <- matrix(0, 4, canvas_width, dimnames = list(c("A", "C", "G", "T"), seq_len(canvas_width)))
+  canvas[, start:end] <- mat
+  canvas
+}
+
+allowed <- rbind(c(1,0,1,0), c(0,0,1,0), c(0,0,1,0), c(0,0,0,1), c(0,1,0,0), c(1,0,0,0))  # R G G T C A
+half_site_scores <- function(mat) {
+  w <- ncol(mat)
+  if (w < 6) return(numeric(0))
+  vapply(seq_len(w - 5), function(i) mean(vapply(1:6, function(k) sum(mat[, i + k - 1] * allowed[k, ]), 0)), 0)
+}
+call_half_sites <- function(mat, threshold = 0.6) {
+  s <- half_site_scores(mat)
+  cand <- which(s >= threshold)
+  cand <- cand[order(-s[cand])]
+  kept <- integer(0)
+  for (p in cand) if (all(abs(p - kept) >= 6)) kept <- c(kept, p)
+  sort(kept)
+}
+
+rule_alignment <- function(motif_id, family) {
+  mat <- normalize_matrix(pfm_list[[motif_id]]@mat)
+  plus <- call_half_sites(mat)
+  minus <- call_half_sites(reverse_complement_matrix(mat))
+  use_rc <- length(minus) > length(plus) ||
+    (length(minus) == length(plus) && length(plus) > 0 &&
+       max(half_site_scores(reverse_complement_matrix(mat))) > max(half_site_scores(mat)) + 0.02)
+  sites <- if (use_rc) minus else plus
+  confident <- length(sites) > 0
+  if (!confident) {                       # fall back to the best-scoring window on either strand
+    s_plus <- half_site_scores(mat); s_rc <- half_site_scores(reverse_complement_matrix(mat))
+    use_rc <- max(s_rc) > max(s_plus)
+    sites <- which.max(if (use_rc) s_rc else s_plus)
+  }
+  anchor_site <- if (family == "RXR") tail(sites, 1) else sites[1]
+  anchor_col <- if (family == "RXR") 13 else 6
+  data.frame(Motif_name = motif_id, Start = anchor_col - anchor_site + 1, Reverse_complement = use_rc,
+             Family = family, n_half_sites = length(sites), confident = confident, stringsAsFactors = FALSE)
+}
+
+manual_alignment <- do.call(rbind, Map(rule_alignment, inv$motif_id, inv$Family))
+rownames(manual_alignment) <- NULL
+shift <- 1 - min(c(manual_alignment$Start, 1))   # also keeps the PPRE reference (starts at column 1) on the canvas
+manual_alignment$Start_unshifted <- manual_alignment$Start
+manual_alignment$Start <- manual_alignment$Start + shift
+cat("canvas shift applied:", shift, "columns\n")
+cat("motifs without a confident half-site call:", sum(!manual_alignment$confident), "\n")
+write.csv(manual_alignment, file.path(output_directory, "manual_alignment_human42.csv"), row.names = FALSE)
+manual_alignment
+```
+
+## Check against the hand-curated table (15 shared motifs)
+
+```{r validate-vs-hand}
+hand <- data.frame(
+  Motif_name = c("MA1148.1","MA1148.2","MA0065.1","MA1550.1","MA1550.2","MA0066.1","MA0066.2",
+                 "RXRA.H13CORE.0.PS.A","RXRA.H13CORE.2.SM.B","RXRB.H13CORE.0.P.C","RXRB.H13CORE.1.SM.B",
+                 "MA0855.1","MA1555.1","MA0856.1","MA1556.1"),
+  Start_hand = c(2,2,2,4,5,4,5,10,5,6,4,5,12,5,12),
+  RC_hand = c(rep(FALSE, 12), TRUE, FALSE, FALSE), stringsAsFactors = FALSE)
+cmp <- merge(hand, manual_alignment[, c("Motif_name", "Start_unshifted", "Reverse_complement")], by = "Motif_name")
+cmp$start_agrees <- cmp$Start_hand == cmp$Start_unshifted
+cmp$rc_agrees <- cmp$RC_hand == cmp$Reverse_complement
+cmp
+cat(sum(cmp$start_agrees), "of", nrow(cmp), "start columns and", sum(cmp$rc_agrees), "of", nrow(cmp),
+    "orientations reproduce the hand-curated table\n")
+write.csv(cmp, file.path(output_directory, "manual_alignment_validation_vs_hand_curated.csv"), row.names = FALSE)
+```
+
+# Unsupervised alignment (pre-oriented)
+
+`DNAmotifAlignment()` is run with `threshold = 0.5` (information-content cutoff for the columns that
+drive the alignment) and `minimalConsensus = 6`. The aligner may also reverse-complement motifs
+(`revcomp = TRUE`), but its choice depends on the order in which the motifs are passed in: with the
+same 42 motifs and threshold 0.5 a run in display order flipped 8 motifs (half-sites in the 3 most
+common columns: 64%, consensus information content 3.1 bits), a run in sheet order flipped 1 (91%, 6.3 bits),
+and random orders gave 1 to 10 flips (3.9 to 4.3 bits). The motifs are therefore oriented first with the
+half-site rule below and the aligner is run with `revcomp = FALSE`. With this setup the result is
+identical for every threshold from 0.2 to 0.6 and worse at 0.8 and above
+(`results/motif_alignment_human42/alignment_threshold_and_order_test.txt`), so 0.5 is kept.
+
+
+```{r motif-alignment, fig.keep = 'none'}
+oriented_pfms <- pfm_list
+for (i in seq_len(nrow(manual_alignment))) {
+  if (manual_alignment$Reverse_complement[i]) {
+    id <- manual_alignment$Motif_name[i]
+    oriented_pfms[[id]]@mat <- reverse_complement_matrix(oriented_pfms[[id]]@mat)
+  }
+}
+all_pfms <- c(oriented_pfms, list(`PPRE motif` = ppre_motif))
+aligned_motifs <- DNAmotifAlignment(all_pfms, threshold = 0.5, minimalConsensus = 6,
+                                    revcomp = rep(FALSE, length(all_pfms)))
+strip_rc <- function(x) sub("\\(RC\\)$", "", x)
+motif_names <- sapply(aligned_motifs, function(m) m@name)
+indices <- match(strip_rc(c("PPRE motif", inv$motif_id)), strip_rc(motif_names))
+stopifnot(!any(is.na(indices)))
+aligned_motifs_order <- rev(aligned_motifs[indices])
+for (i in seq_along(aligned_motifs_order)) {
+  if (strip_rc(aligned_motifs_order[[i]]@name) %in% new_names)
+    aligned_motifs_order[[i]]@name <- paste0(aligned_motifs_order[[i]]@name, " *")
+}
+
+# per-motif stack (same layout plotMotifLogoStack uses), with a yellow bar behind new motifs
+highlighted_motif_stack <- function(pfms, ...) {
+  n <- length(pfms); ht <- 1 / n; y0 <- 0.5 * ht; plot <- gList()
+  for (i in seq_len(n)) {
+    m <- pfms[[i]]
+    logo <- plotMotifLogo(pfm = m, motifName = m@name, p = m@background, colset = m@color,
+                          xlab = NA, newpage = FALSE, draw = FALSE,
+                          margins = c(1.5, 4.1, 1.1, 0.1), ...)
+    children <- if (grepl("\\*$", m@name)) {
+      gList(rectGrob(y = unit(1, "npc") - unit(0.6, "lines"), height = unit(1.2, "lines"),
+                     width = unit(0.98, "npc"), gp = gpar(fill = "#fff59d", col = NA, alpha = 0.8)), logo)
+    } else logo
+    plot <- gList(plot, gTree(children = children, vp = viewport(y = y0, height = ht)))
+    y0 <- y0 + ht
+  }
+  plot
+}
+
+dev.control("enable")
+grid.newpage()
+grid.draw(highlighted_motif_stack(aligned_motifs_order, fontsize = 2, yaxis = FALSE, ylab = "", font = "Arial"))
+recorded_alignment_plot <- recordPlot()
+pdf(file.path(output_directory, "aligned_motifs_human42_threshold0.5_preoriented.pdf"), height = 26)
+replayPlot(recorded_alignment_plot)
+dev.off()
+```
+
+```{r plot-alignment, fig.width=20, fig.height=40}
+grid.newpage()
+grid.draw(highlighted_motif_stack(aligned_motifs_order, fontsize = 4, yaxis = FALSE, ylab = "", font = "Arial"))
+```
+
+```{r manual-consensus}
+motifs_by_name <- pfm_list
+canvas_width <- max(manual_alignment$Start + vapply(manual_alignment$Motif_name, function(n) ncol(motifs_by_name[[n]]@mat), 0) - 1)
+manual_aligned_matrices <- lapply(seq_len(nrow(manual_alignment)), function(i) {
+  mat <- normalize_matrix(motifs_by_name[[manual_alignment$Motif_name[i]]]@mat)
+  if (manual_alignment$Reverse_complement[i]) mat <- reverse_complement_matrix(mat)
+  place_on_canvas(mat, manual_alignment$Start[i], canvas_width)
+})
+names(manual_aligned_matrices) <- manual_alignment$Motif_name
+
+# coverage-aware consensus, keeping columns covered by at least half of the motifs
+n_motifs <- length(manual_aligned_matrices)
+consensus_matrix <- matrix(0, 4, canvas_width, dimnames = list(c("A","C","G","T"), seq_len(canvas_width)))
+position_coverage <- numeric(canvas_width)
+for (position in seq_len(canvas_width)) {
+  contributing <- vapply(manual_aligned_matrices, function(m) sum(m[, position]) > 0, logical(1))
+  position_coverage[position] <- sum(contributing)
+  if (any(contributing))
+    consensus_matrix[, position] <- rowMeans(vapply(manual_aligned_matrices[contributing], function(m) m[, position], numeric(4)))
+}
+keep <- position_coverage >= ceiling(n_motifs / 2)
+manual_consensus <- consensus_matrix[, keep, drop = FALSE]
+manual_consensus <- sweep(manual_consensus, 2, colSums(manual_consensus), "/")
+colnames(manual_consensus) <- seq_len(ncol(manual_consensus))
+manual_pfm <- new("pfm", mat = manual_consensus, name = "Consensus from rule-based alignment")
+```
+
+```{r manual-stack, fig.width=14, fig.height=34}
+# Every motif is drawn on the shared canvas at its rule-derived start column (unoccupied columns are
+# drawn as a uniform 0.25 background, i.e. blank), so the AGGTCA half-sites stack in the same columns.
+canvas_to_pfm <- function(mat, name) {
+  mat[, colSums(mat) == 0] <- 0.25
+  new("pfm", mat = mat, name = name)
+}
+ppre_on_canvas <- place_on_canvas(normalize_matrix(PPRE_mat), 1 + shift, canvas_width)  # PPAR box at column 6 + shift
+stack_pfms <- c(
+  list(`PPRE motif` = canvas_to_pfm(ppre_on_canvas, "PPRE motif")),
+  lapply(manual_alignment$Motif_name, function(id)
+    canvas_to_pfm(manual_aligned_matrices[[id]], if (id %in% new_names) paste0(id, " *") else id))
+)
+dev.control("enable")
+plotMotifLogoStack(rev(stack_pfms), fontsize = 3, yaxis = FALSE, ylab = "", font = "Arial")
+recorded_manual_plot <- recordPlot()
+# saved as its own file (same record/replay approach as the unsupervised stack above)
+pdf(file.path(output_directory, "manual_alignment_human42_stack.pdf"), width = 14, height = 34)
+replayPlot(recorded_manual_plot)
+dev.off()
+```
+
+```{r unsupervised-consensus}
+aligned_names <- sapply(aligned_motifs, function(m) m@name)
+unsupervised_idx <- match(strip_rc(manual_alignment$Motif_name), strip_rc(aligned_names))
+stopifnot(!any(is.na(unsupervised_idx)))
+unsupervised_mats <- lapply(aligned_motifs[unsupervised_idx], function(m) m@mat)
+common_width <- unique(vapply(unsupervised_mats, ncol, integer(1)))
+stopifnot(length(common_width) == 1)
+unsupervised_stack <- array(NA_real_, dim = c(4, common_width, length(unsupervised_mats)))
+for (i in seq_along(unsupervised_mats)) unsupervised_stack[, , i] <- unsupervised_mats[[i]]
+unsupervised_consensus <- apply(unsupervised_stack, c(1, 2), mean, na.rm = TRUE)
+unsupervised_consensus[is.nan(unsupervised_consensus)] <- 0.25
+unsupervised_consensus <- sweep(unsupervised_consensus, 2, colSums(unsupervised_consensus), "/")
+rownames(unsupervised_consensus) <- c("A", "C", "G", "T")
+unsupervised_pfm <- new("pfm", mat = unsupervised_consensus, name = "Consensus from unsupervised alignment")
+```
+
+# PPRE architecture validation figure
+
+```{r ppre-comparison-figure, fig.width=10, fig.height=12}
+ppre_pfm <- new("pfm", mat = normalize_matrix(PPRE_mat), name = "PPRE motif")
+ppre_reference_grob <- grid::grid.grabExpr({
+  plotMotifLogo(pfm = ppre_pfm, motifName = "PPRE motif", p = ppre_pfm@background, colset = ppre_pfm@color,
+                yaxis = TRUE, ylab = "Information content", xlab = NA, margins = c(1.5, 4.1, 6.5, 1.0), newpage = FALSE)
+  left_frac <- 0.10; right_frac <- 0.98; col_width <- (right_frac - left_frac) / 18
+  ppar_box <- left_frac + c(5, 11) * col_width
+  rxr_box  <- left_frac + c(12, 18) * col_width
+  for (box in list(ppar_box, rxr_box))
+    grid.rect(x = unit(mean(box), "npc"), y = unit(0.44, "npc"), width = unit(diff(box), "npc"),
+              height = unit(0.88, "npc"), gp = gpar(col = "red", fill = NA, lwd = 2.5))
+  grid.text("PPAR motif", x = unit(mean(ppar_box), "npc"), y = unit(0.91, "npc"), just = c("center", "bottom"),
+            gp = gpar(fontface = "bold", fontsize = 13))
+  grid.text("RXR motif", x = unit(mean(rxr_box), "npc"), y = unit(0.91, "npc"), just = c("center", "bottom"),
+            gp = gpar(fontface = "bold", fontsize = 13))
+})
+panel2_grob <- grid::grid.grabExpr(plotMotifLogo(manual_pfm, motifName = "Consensus from rule-based alignment (42 human-source motifs)",
+                                                 ylab = "Information content", margins = c(4.1, 4.1, 2.1, 0.1)))
+panel3_grob <- grid::grid.grabExpr(plotMotifLogo(unsupervised_pfm, motifName = "Consensus from unsupervised alignment (42 human-source motifs)",
+                                                 ylab = "Information content", margins = c(4.1, 4.1, 2.1, 0.1)))
+pdf(file.path(output_directory, "PPRE_architecture_validation_human42_preoriented.pdf"), width = 10, height = 12)
+grid.arrange(ppre_reference_grob, panel2_grob, panel3_grob, ncol = 1, heights = c(1.3, 1, 1))
+dev.off()
+grid.arrange(ppre_reference_grob, panel2_grob, panel3_grob, ncol = 1, heights = c(1.3, 1, 1))
+```
+
+# Export MEME files for FIMO
+
+The batch files used for the FIMO run itself were written directly from the combined MEME file
+(`FIMO_batches/`); the export below regenerates them through `convert_type()`/`write_meme()`, as in
+the earlier pipeline, plus the two single-motif scanners (canonical PPRE, consensus of all 42).
+
+```{r pfm-to-meme}
+meme_list <- lapply(pfm_list, function(p) convert_type(motifs = p, type = "PPM"))
+starts <- seq(1, length(meme_list), by = 4)
+for (s in starts) {
+  e <- min(s + 3, length(meme_list))
+  write_meme(meme_list[s:e], file.path(meme_export_directory, sprintf("RXR_PPAR_human42_files_%d_%d.meme", s, e)), overwrite = TRUE)
+}
+ppre_for_export <- ppre_motif; ppre_for_export@name <- "PPRE_canonical"
+consensus_for_export <- manual_pfm; consensus_for_export@name <- "PPRE_consensus_all42"
+write_meme(convert_type(motifs = ppre_for_export, type = "PPM"), file.path(meme_export_directory, "PPRE_canonical_motif.meme"), overwrite = TRUE)
+write_meme(convert_type(motifs = consensus_for_export, type = "PPM"), file.path(meme_export_directory, "PPRE_consensus_all42_motif.meme"), overwrite = TRUE)
+list.files(meme_export_directory)
+```
