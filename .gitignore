@@ -13,3 +13,4 @@ results/human42_pipeline_full_local/
 **/fimo.tsv
 **/cisml.xml
 **/fimo.gff
+results/human42_pipeline/clustering/gc_bins_1kb.tsv
