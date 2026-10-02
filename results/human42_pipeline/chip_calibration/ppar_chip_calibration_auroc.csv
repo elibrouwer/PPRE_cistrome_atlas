@@ -1,0 +1,29 @@
+fold,test,model,AUROC
+1,Adipocyte (held-out chromosomes),GC covariate only,0.5009513773359
+1,Adipocyte (held-out chromosomes),all-motif max,0.583674588923649
+1,Adipocyte (held-out chromosomes),heterodimer-motif max,0.716530745102954
+1,Adipocyte (held-out chromosomes),elastic net (42 motifs + GC),0.763070070177002
+2,Adipocyte (held-out chromosomes),GC covariate only,0.505858677303761
+2,Adipocyte (held-out chromosomes),all-motif max,0.590686994638296
+2,Adipocyte (held-out chromosomes),heterodimer-motif max,0.719036221168375
+2,Adipocyte (held-out chromosomes),elastic net (42 motifs + GC),0.761549256434955
+,Digestive tract (transfer),GC covariate only,0.501984081841346
+,Digestive tract (transfer),all-motif max,0.588995315748005
+,Digestive tract (transfer),heterodimer-motif max,0.699080503168377
+,Digestive tract (transfer),elastic net (42 motifs + GC),0.73445506856434
+,Liver (transfer),GC covariate only,0.501902892578544
+,Liver (transfer),all-motif max,0.628674168217242
+,Liver (transfer),heterodimer-motif max,0.753161884680465
+,Liver (transfer),elastic net (42 motifs + GC),0.783195588771572
+,Blood (transfer),GC covariate only,0.500965144358525
+,Blood (transfer),all-motif max,0.505690594108737
+,Blood (transfer),heterodimer-motif max,0.64409217055963
+,Blood (transfer),elastic net (42 motifs + GC),0.677585939160821
+,Cardiovascular (transfer),GC covariate only,0.50283509613562
+,Cardiovascular (transfer),all-motif max,0.327116000317063
+,Cardiovascular (transfer),heterodimer-motif max,0.480519845741876
+,Cardiovascular (transfer),elastic net (42 motifs + GC),0.476209303046908
+,Others (transfer),GC covariate only,0.501879761132947
+,Others (transfer),all-motif max,0.534410294085144
+,Others (transfer),heterodimer-motif max,0.717915650589938
+,Others (transfer),elastic net (42 motifs + GC),0.752772416003301
