@@ -1,0 +1,29 @@
+label,n_genes
+PPARG | Digestive tract | promoter -3k/+1k,1998
+PPARG | Digestive tract | +-1kb,1527
+PPARG | Adipocyte | promoter -3k/+1k,5396
+PPARG | Adipocyte | +-1kb,4440
+PPARG | Liver | promoter -3k/+1k,1373
+PPARG | Liver | +-1kb,1083
+PPARG | Blood | promoter -3k/+1k,114
+PPARG | Blood | +-1kb,89
+PPARG | Others | promoter -3k/+1k,307
+PPARG | Others | +-1kb,259
+PPARA | Neural | promoter -3k/+1k,39
+PPARA | Neural | +-1kb,35
+PPARA | Liver | promoter -3k/+1k,7833
+PPARA | Liver | +-1kb,5157
+RXRA | Liver | promoter -3k/+1k,10733
+RXRA | Liver | +-1kb,9942
+RXRA | Others | promoter -3k/+1k,1549
+RXRA | Others | +-1kb,1296
+RXRA | Breast | promoter -3k/+1k,1667
+RXRA | Breast | +-1kb,1381
+RXRA | Pluripotent stem cell | promoter -3k/+1k,80
+RXRA | Pluripotent stem cell | +-1kb,65
+RXRA | Digestive tract | promoter -3k/+1k,56
+RXRA | Digestive tract | +-1kb,43
+RXRA | Neural | promoter -3k/+1k,808
+RXRA | Neural | +-1kb,609
+RXRA | Blood | promoter -3k/+1k,223
+RXRA | Blood | +-1kb,186
