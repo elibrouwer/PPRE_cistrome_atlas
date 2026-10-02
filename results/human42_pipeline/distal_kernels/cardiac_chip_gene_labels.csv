@@ -1,0 +1,7 @@
+label,n_genes
+iPSC cardiac PPARA | promoter,0
+iPSC cardiac PPARA | +-10kb,3
+HUVEC PPARG (score>=250) | promoter,14
+HUVEC PPARG (score>=250) | +-10kb,45
+HUVEC PPARG (all) | promoter,115
+HUVEC PPARG (all) | +-10kb,215
