@@ -1,0 +1,23 @@
+test,model,fold,AUROC
+Adipocyte (held-out chromosomes),motif (42 + GC),1,0.762639393550498
+Adipocyte (held-out chromosomes),6-mer,1,0.846805530409854
+Adipocyte (held-out chromosomes),motif + 6-mer,1,0.889605762036982
+Adipocyte (held-out chromosomes),motif (42 + GC),2,0.759572262967625
+Adipocyte (held-out chromosomes),6-mer,2,0.845243162486467
+Adipocyte (held-out chromosomes),motif + 6-mer,2,0.889085617101624
+Digestive tract (transfer),motif (42 + GC),,0.734887787081741
+Digestive tract (transfer),6-mer,,0.766915637363374
+Digestive tract (transfer),motif + 6-mer,,0.816337297995038
+Liver (transfer),motif (42 + GC),,0.783801669373214
+Liver (transfer),6-mer,,0.780023783943405
+Liver (transfer),motif + 6-mer,,0.845728318023747
+Blood (transfer),motif (42 + GC),,0.679608818625106
+Blood (transfer),6-mer,,0.835462090109481
+Blood (transfer),motif + 6-mer,,0.879130875983206
+Cardiovascular (transfer),motif (42 + GC),,0.477864166003247
+Cardiovascular (transfer),6-mer,,0.859922319523854
+Cardiovascular (transfer),motif + 6-mer,,0.863959912187288
+Others (transfer),motif (42 + GC),,0.753581325123679
+Others (transfer),6-mer,,0.813661389514088
+Others (transfer),motif + 6-mer,,0.888167019070318
+PPARD myofibroblast (transfer),6-mer,,0.664526589849666
