@@ -10,7 +10,7 @@ source("C:/Users/brouw/PPRE_cistrome_atlas/scripts/gold_panels_human42.R")
 out <- "C:/Users/brouw/PPRE_cistrome_atlas/results/human42_pipeline/score_improvement"; dir.create(out, showWarnings = FALSE)
 full_local <- "C:/Users/brouw/PPRE_cistrome_atlas/results/human42_pipeline_full_local"
 gi <- load_genes(); tss <- readRDS(file.path(cache_dir, "tss_manuscript.rds"))
-B <- readRDS(file.path(full_local, "fimo_human42_bins500_pcuts_lp.rds")); B[, bpos := bin * 500L + 250L]; mc <- readRDS(file.path(full_local, "adipocyte_model_coefs.rds"))
+B <- readRDS(file.path(full_local, "fimo_human42_bins500_pcuts_lp.rds")); B[, bpos := bin * 500L + 250L]; B[, pos := bpos]; mc <- readRDS(file.path(full_local, "adipocyte_model_coefs.rds"))
 p0 <- plogis(mc$b0 + mc$bgc * mc$gc_med); B[, ex := pmax(plogis(mc$b0 + mc$bgc * mc$gc_med + lp) - p0, 0)]
 cat("bins:", nrow(B), " bins with excess > 0:", sum(B$ex > 0), " max excess:", round(max(B$ex), 3), "\n")
 U <- unique(tss[in_universe == TRUE & ENSEMBL %in% gi$ENSEMBL, .(ENSEMBL, chr, strand, tss)]); U[, `:=`(g = match(ENSEMBL, gi$ENSEMBL), sgn = ifelse(strand == "+", 1L, -1L))]

@@ -18,7 +18,8 @@ B[, atac := countOverlaps(GRanges(chr, IRanges(pos, pos)), ga) > 0]
 cat("ATAC peaks (merged):", length(ga), " bins in ATAC:", sum(B$atac), "of", nrow(B), " (", round(100 * mean(B$atac), 2), "%)\n")
 U <- unique(tss[in_universe == TRUE & ENSEMBL %in% gi$ENSEMBL, .(ENSEMBL, chr, strand, tss)]); U[, `:=`(g = match(ENSEMBL, gi$ENSEMBL), lo = tss - 100000L, hi = tss + 100000L, sgn = ifelse(strand == "+", 1L, -1L))]
 J <- B[U, on = .(chr, pos >= lo, pos <= hi), nomatch = 0L, allow.cartesian = TRUE, .(g = i.g, d = (x.pos - i.tss) * i.sgn, max_rel, het_rel, atac)]
-nG <- nrow(gi); sc <- function(D, col, k) { r <- rep(0, nG); a <- D[, .(x = max(get(col) * k)), by = g]; r[a$g] <- a$x; r }
+nG <- nrow(gi); gagg <- function(D, val, fun = "max") { D[, vv := val]; a <- if (fun == "max") D[, .(x = max(vv)), by = g] else D[, .(x = sum(vv)), by = g]; D[, vv := NULL]; r <- rep(0, nG); r[a$g] <- a$x; r }   # val is stored as a column so it is grouped with the rows (a global vector inside j would be recycled over the whole table)
+sc <- function(D, col, k) gagg(D, D[[col]] * k, "max")
 P <- J[d >= -3000 & d <= 1000]; kP <- exp(-abs(P$d) / 3000); PA <- P[atac == TRUE]; kPA <- exp(-abs(PA$d) / 3000)
 JA <- J[atac == TRUE]; kW <- exp(-abs(JA$d) / 20000)
 S <- list(prom_base = sc(P, "max_rel", kP), prom_het = sc(P, "het_rel", kP), atac_prom_all = sc(PA, "max_rel", kPA), atac_prom_het = sc(PA, "het_rel", kPA),

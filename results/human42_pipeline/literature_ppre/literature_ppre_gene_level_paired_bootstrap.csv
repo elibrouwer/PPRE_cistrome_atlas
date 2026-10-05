@@ -1,7 +1,7 @@
 gold,a,b,diff,lo,hi
-tier 1,PPAR_containing_14,all_42,-0.01980064,-0.160928,0.117496
-tier 1,heterodimer_3,all_42,0.00800224,-0.131096,0.140856
-tier 1,heterodimer_3,PPAR_containing_14,0.02780288,-0.057128,0.113964
-tier 1+2,PPAR_containing_14,all_42,0.0009875,-0.1174609375,0.1260796875
-tier 1+2,heterodimer_3,all_42,0.0254255,-0.08195,0.140225
-tier 1+2,heterodimer_3,PPAR_containing_14,0.024438,-0.0361953125,0.0838015625
+tier 1,PPAR_containing_14,all_42,-0.00734016,-0.163988,0.12736
+tier 1,heterodimer_3,all_42,0.039536,-0.143192,0.208296
+tier 1,heterodimer_3,PPAR_containing_14,0.04687616,-0.041464,0.134968
+tier 1+2,PPAR_containing_14,all_42,0.01462575,-0.104246875,0.137025
+tier 1+2,heterodimer_3,all_42,0.05651275,-0.073990625,0.181375
+tier 1+2,heterodimer_3,PPAR_containing_14,0.041887,-0.024571875,0.10589375

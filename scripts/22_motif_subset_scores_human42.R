@@ -30,7 +30,8 @@ for (f in list.files(fimo_root, "fimo\\.tsv$", recursive = TRUE, full.names = TR
 B <- rbindlist(acc)[, lapply(.SD, max), by = .(chr, bin), .SDcols = c("r_all", "r_pp", "r_het", "r_ppar", "r_rxr")]; B[, pos := bin * 500L + 250L]
 J <- B[U, on = .(chr, pos >= lo, pos <= hi), nomatch = 0L, allow.cartesian = TRUE, .(g = i.g, d = (x.pos - i.tss) * i.sgn, r_all, r_pp, r_het, r_ppar, r_rxr)]
 J <- J[d >= -3000 & d <= 1000]; k <- exp(-abs(J$d) / 3000); nG <- nrow(gi)
-sc <- function(col) { r <- rep(0, nG); a <- J[, .(x = max(get(col) * k)), by = g]; r[a$g] <- a$x; r }
+gagg <- function(D, val, fun = "max") { D[, vv := val]; a <- if (fun == "max") D[, .(x = max(vv)), by = g] else D[, .(x = sum(vv)), by = g]; D[, vv := NULL]; r <- rep(0, nG); r[a$g] <- a$x; r }   # val is stored as a column so it is grouped with the rows (a global vector inside j would be recycled over the whole table)
+sc <- function(col) gagg(J, J[[col]] * k, "max")
 S <- list(all_42 = sc("r_all"), PPAR_containing_14 = sc("r_pp"), heterodimer_3 = sc("r_het"), PPAR_only_11 = sc("r_ppar"), RXR_only_28 = sc("r_rxr"))
 saveRDS(S, file.path(out, "motif_subset_scores.rds"))
 

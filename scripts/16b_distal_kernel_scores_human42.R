@@ -36,20 +36,21 @@ cat("TSS rows:", nrow(U), "\n")
 J <- B[U, on = .(chr, pos >= lo, pos <= hi), nomatch = 0L, allow.cartesian = TRUE, .(g = i.g, d = (x.pos - i.tss) * i.sgn, max_rel, het_rel, ac)]
 cat("joined rows:", nrow(J), "\n")
 nG <- nrow(gi)
+gagg <- function(D, val, fun = "max") { D[, vv := val]; a <- if (fun == "max") D[, .(x = max(vv)), by = g] else D[, .(x = sum(vv)), by = g]; D[, vv := NULL]; r <- rep(0, nG); r[a$g] <- a$x; r }   # val is stored as a column so it is grouped with the rows (a global vector inside j would be recycled over the whole table)
 S <- list()
 P <- J[d >= -3000 & d <= 1000]; kP <- exp(-abs(P$d) / 3000)
-S$prom_base <- { r <- rep(0, nG); a <- P[, .(v = max(max_rel * kP)), by = g]; r[a$g] <- a$v; r }
-S$prom_het  <- { r <- rep(0, nG); a <- P[, .(v = max(het_rel * kP)), by = g]; r[a$g] <- a$v; r }
+S$prom_base <- gagg(P, P$max_rel * kP, "max")
+S$prom_het  <- gagg(P, P$het_rel * kP, "max")
 kern <- function(dt, tau) exp(-abs(dt$d) / tau)
 for (tau in c(10000, 20000, 50000)) {
   k <- kern(J, tau); tg <- paste0("tau", tau / 1000, "k")
-  S[[paste0("wide_", tg, "_max")]] <- { r <- rep(0, nG); a <- J[, .(v = max(max_rel * k)), by = g]; r[a$g] <- a$v; r }
-  S[[paste0("wide_", tg, "_sum")]] <- { r <- rep(0, nG); a <- J[, .(v = sum(max_rel * k)), by = g]; r[a$g] <- a$v; r }
+  S[[paste0("wide_", tg, "_max")]] <- gagg(J, J$max_rel * k, "max")
+  S[[paste0("wide_", tg, "_sum")]] <- gagg(J, J$max_rel * k, "sum")
 }
-for (W in c(10000, 50000)) { s <- J[abs(d) <= W]; S[[paste0("flat", W / 1000, "k_sum")]] <- { r <- rep(0, nG); a <- s[, .(v = sum(max_rel)), by = g]; r[a$g] <- a$v; r } }
+for (W in c(10000, 50000)) { s <- J[abs(d) <= W]; S[[paste0("flat", W / 1000, "k_sum")]] <- gagg(s, s$max_rel, "sum") }
 Jac <- J[ac == TRUE]; k <- kern(Jac, 20000)
-S$ac_tau20k_max <- { r <- rep(0, nG); a <- Jac[, .(v = max(max_rel * k)), by = g]; r[a$g] <- a$v; r }
-S$ac_tau20k_sum <- { r <- rep(0, nG); a <- Jac[, .(v = sum(max_rel * k)), by = g]; r[a$g] <- a$v; r }
+S$ac_tau20k_max <- gagg(Jac, Jac$max_rel * k, "max")
+S$ac_tau20k_sum <- gagg(Jac, Jac$max_rel * k, "sum")
 S$prom_plus_ac_max <- pmax(S$prom_base, S$ac_tau20k_max)
 S$rankavg_prom_ac <- (frank(S$prom_base) + frank(S$ac_tau20k_max)) / 2
 # nearest-TSS exclusive version: every bin credited to its nearest TSS (universe genes + competitor genes)
@@ -61,8 +62,8 @@ nearest <- function(chr_, pos_) {
 }
 E <- rbindlist(lapply(unique(B$chr), function(ch) { b <- B[chr == ch]; n <- nearest(ch, b$pos); data.table(g = n$g, d = n$d, max_rel = b$max_rel) }))
 E <- E[!is.na(g) & abs(d) <= 100000]; ke <- exp(-abs(E$d) / 20000)
-S$excl_tau20k_max <- { r <- rep(0, nG); a <- E[, .(v = max(max_rel * ke)), by = g]; r[a$g] <- a$v; r }
-S$excl_tau20k_sum <- { r <- rep(0, nG); a <- E[, .(v = sum(max_rel * ke)), by = g]; r[a$g] <- a$v; r }
+S$excl_tau20k_max <- gagg(E, E$max_rel * ke, "max")
+S$excl_tau20k_sum <- gagg(E, E$max_rel * ke, "sum")
 S <- S[!vapply(S, is.null, TRUE)]
 cat("scores:", paste(names(S), collapse = ", "), "\n")
 saveRDS(S, file.path(out, "distal_kernel_scores.rds"))
