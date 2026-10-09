@@ -30,7 +30,11 @@ ggsave(file.path(out, "even_boxplot_panel.pdf"), db_n + db_w + fam_n + fam_w + p
 ggsave(file.path(out, "even_boxplot_panel_3.pdf"), typ_n + typ_w + plot_layout(ncol = 2), width = 16, height = 4)
 ggsave(file.path(out, "FIMO_db_plts.pdf"), db_n + db_w + plot_layout(ncol = 2), width = 6, height = 3)
 ggsave(file.path(out, "FIMO_mottyp_smp_plts.pdf"), fam_n + fam_w + plot_layout(ncol = 2), width = 6, height = 3)
-sc <- ggplot(d, aes(x = Mean_width, y = N_amount, colour = Motif_type)) + geom_point(size = 3) + scale_colour_manual(values = type_colors) + scale_y_log10() +
+sc <- ggplot(d, aes(x = Mean_width, y = N_amount, colour = Motif_type)) + geom_point(size = 3) +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, colour = "black") +                       # straight line of log10(hits) on width (the y axis is log10)
+  stat_cor(aes(group = 1), method = "spearman", label.x.npc = "left", label.y.npc = "top", label.sep = ", ", colour = "black") +   # rank correlation: the data are not normal
+  scale_colour_manual(values = type_colors) + scale_y_log10() +
   labs(x = "Motif width (bp)", y = "Number of FIMO hits (p <= 1e-4)") + plot_theme + theme(legend.position = "right")
 ggsave(file.path(out, "FIMO_scat_plts.pdf"), sc, width = 8, height = 3, useDingbats = FALSE)
+ggsave(file.path(out, "FIMO_scat_plts.png"), sc, width = 8, height = 3, dpi = 200)
 cat("saved to", out, "\n"); print(list.files(out))
