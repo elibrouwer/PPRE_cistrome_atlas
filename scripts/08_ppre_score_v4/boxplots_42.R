@@ -16,8 +16,8 @@ type_colors <- c("PPARA" = "#73A2E6", "PPARD" = "#8CB4EE", "PPARG" = "#B7D0F5", 
 plot_theme <- theme_classic() + theme(panel.border = element_blank(), panel.grid = element_blank(), axis.line = element_line(colour = "black"), legend.title = element_blank(), legend.position = "none")
 bp <- function(x, y, pal, xlab, ylab, ylog = FALSE) {
   p <- ggboxplot(d, x = x, y = y, fill = x, color = x, palette = pal, add = "jitter", width = 0.5, add.params = list(size = 2, alpha = 0.8)) +
-    stat_compare_means(method = "kruskal.test", label.y = max(d[[y]], na.rm = TRUE)) + labs(x = xlab, y = ylab) + plot_theme
-  if (ylog) p <- p + scale_y_log10()
+    stat_compare_means(method = "kruskal.test", label.y = max(d[[y]], na.rm = TRUE) * 1.08) + labs(x = xlab, y = ylab) + plot_theme
+  # linear axis, as in the original notebook (a log axis with the p-value label squashed the boxes)
   p
 }
 db_n <- bp("Motif_db", "N_amount", database_colors, "Motif database", "Number of FIMO hits (p <= 1e-4)", TRUE)

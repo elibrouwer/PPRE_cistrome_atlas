@@ -21,7 +21,7 @@ database_colors <- c("HOCOMOCO" = "#6F6F6F", "JASPAR" = "#B5B5B5", "CIS-BP" = "#
 type_colors <- c("PPARA" = "#73A2E6", "PPARD" = "#8CB4EE", "PPARG" = "#B7D0F5", "RXRA" = "#E58C8C", "RXRB" = "#EDAAAA", "RXRG" = "#F4C9C9", "PPAR::RXR" = "#9A86CC")
 plot_theme <- theme_classic() + theme(panel.border = element_blank(), panel.grid = element_blank(), axis.line = element_line(colour = "black"), legend.title = element_blank(), legend.position = "none")
 bp <- function(x, y, pal, xlab, ylab, ylog = FALSE) { p <- ggboxplot(d, x = x, y = y, fill = x, color = x, palette = pal, add = "jitter", width = 0.5, add.params = list(size = 2, alpha = 0.8)) +
-  stat_compare_means(method = "kruskal.test", label.y = max(d[[y]], na.rm = TRUE)) + labs(x = xlab, y = ylab) + plot_theme; if (ylog) p <- p + scale_y_log10(); p }
+  stat_compare_means(method = "kruskal.test", label.y = max(d[[y]], na.rm = TRUE) * 1.08) + labs(x = xlab, y = ylab) + plot_theme; p }
 a <- bp("Motif_db", "n_in_repeat", database_colors, "Motif database", "FIMO hits in repeats (n)", TRUE); b <- bp("Motif_db", "pct_in_repeat", database_colors, "Motif database", "Hits in repeats (%)")
 c_ <- bp("Motif_type_simple", "n_in_repeat", family_colors, "Motif family", "FIMO hits in repeats (n)", TRUE); e <- bp("Motif_type_simple", "pct_in_repeat", family_colors, "Motif family", "Hits in repeats (%)")
 f1 <- bp("Motif_type", "n_in_repeat", type_colors, "Motif type", "FIMO hits in repeats (n)", TRUE); g1 <- bp("Motif_type", "pct_in_repeat", type_colors, "Motif type", "Hits in repeats (%)")

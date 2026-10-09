@@ -13,7 +13,7 @@ Scripts for the evaluation of PPRE gene scores on human data, the pre-registered
 | `export_sitecount_scores.py` | final score for all genes (number of sites, percentile within promoter-length and GC groups) |
 | `cardio_labels.R`, `gse262419_labels.R`, `atac_peaks.R` | labels and checks for the cardiomyocyte datasets GSE160987, GSE262419 and GSE178984 |
 | `pipeline42_part1.R`, `part1b.R`, `part2.R`, `part3.R`, `part4.R` | per-motif ChIPseeker annotation (one motif at a time), tables, gene lists, heatmaps, genome coverage, over-representation analysis for the 42 motifs |
-| `boxplots_42.R`, `boxplots_repeats_42.R` | boxplots of hits per motif and hits in repeats per motif |
+| `boxplots_42.R`, `boxplots_repeats_42.R`, `boxplots_single_42.R` | boxplots of hits and width per motif, hits in repeats per motif, and every plot and Q-Q plot as a separate file (`Statistics_plots/single_plots/`) |
 | `v4_standard.py`, `v4motif3.py`, `v4motif_oi.py`, `v4motif_s0.py`, `v4motif_sizecontrol.py` | motif prioritisation follow-ups: field-standard benchmarking, outcome-independent sets, RXR half-site removal, size-matched control, cardiomyocyte confirmation (Addenda 11 to 15) |
 | `v4final.py`, `v4stab.py` | recomputation of robustness, intervals and the ranked list for the site-count percentile score |
 | `build_motif_page.py`, `update_pages_addendum15.py` | build the HTML summary pages (not needed to reproduce results) |
