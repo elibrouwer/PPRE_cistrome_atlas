@@ -1,0 +1,46 @@
+[   25s] mouse model fitted
+[   31s] human promoter hits 2,367,473
+[   62s] human model fitted
+[   63s] liver ATAC peaks 136,959
+[   64s] hits 632,259, in liver ATAC 0.183
+[   72s] pairs 9,096,018, promoter pairs 1,294,715
+merged peaks liver/heart/union: 67419 73563 104160
+{'K27-LIVER': 0.191, 'K27-HEART': 0.236, 'K27-UNION': 0.284} share of hits in a peak
+Spearman with TF-A: {'TF-A': np.float64(1.0), 'K27-LIVER': np.float64(0.895), 'K27-HEART': np.float64(0.884), 'K27-UNION': np.float64(0.88)}
+                            test     score  base  layer   diff     lo     hi
+      hepatocyte GSE17251 top 5% K27-LIVER 0.535  0.557  0.022  0.010  0.033
+      hepatocyte GSE17251 top 5% K27-UNION 0.535  0.556  0.021  0.009  0.032
+      hepatocyte GSE17251 top 5% K27-HEART 0.535  0.528 -0.007 -0.021  0.006
+      hepatocyte GSE17251 top 1% K27-LIVER 0.567  0.597  0.029  0.006  0.056
+      hepatocyte GSE17251 top 1% K27-UNION 0.567  0.585  0.018 -0.006  0.041
+      hepatocyte GSE17251 top 1% K27-HEART 0.567  0.536 -0.031 -0.060 -0.001
+      hepatocyte GSE53399 top 5% K27-LIVER 0.547  0.546 -0.001 -0.012  0.011
+      hepatocyte GSE53399 top 5% K27-UNION 0.547  0.546 -0.002 -0.013  0.009
+      hepatocyte GSE53399 top 5% K27-HEART 0.547  0.534 -0.013 -0.024  0.001
+      hepatocyte GSE53399 top 1% K27-LIVER 0.585  0.607  0.022  0.000  0.047
+      hepatocyte GSE53399 top 1% K27-UNION 0.585  0.602  0.017 -0.007  0.041
+      hepatocyte GSE53399 top 1% K27-HEART 0.585  0.601  0.016 -0.011  0.045
+          literature genes AUROC K27-LIVER 0.585  0.625  0.041    NaN    NaN
+          literature genes AUROC K27-UNION 0.585  0.610  0.025    NaN    NaN
+          literature genes AUROC K27-HEART 0.585  0.580 -0.005    NaN    NaN
+      ChIP PPARG_adipocyte adjOR K27-LIVER 1.109  1.392  1.255    NaN    NaN
+      ChIP PPARG_adipocyte adjOR K27-UNION 1.109  1.386  1.250    NaN    NaN
+      ChIP PPARG_adipocyte adjOR K27-HEART 1.109  1.360  1.227    NaN    NaN
+ChIP PPARG_digestive_tract adjOR K27-LIVER 1.271  1.592  1.253    NaN    NaN
+ChIP PPARG_digestive_tract adjOR K27-UNION 1.271  1.552  1.221    NaN    NaN
+ChIP PPARG_digestive_tract adjOR K27-HEART 1.271  1.457  1.147    NaN    NaN
+          ChIP PPARG_liver adjOR K27-LIVER 1.252  1.696  1.355    NaN    NaN
+          ChIP PPARG_liver adjOR K27-UNION 1.252  1.565  1.250    NaN    NaN
+          ChIP PPARG_liver adjOR K27-HEART 1.252  1.375  1.098    NaN    NaN
+           ChIP RXRA_liver adjOR K27-LIVER 0.949  1.364  1.437    NaN    NaN
+           ChIP RXRA_liver adjOR K27-UNION 0.949  1.305  1.375    NaN    NaN
+           ChIP RXRA_liver adjOR K27-HEART 0.949  1.212  1.278    NaN    NaN
+          ChIP RXRA_breast adjOR K27-LIVER 1.095  1.425  1.302    NaN    NaN
+          ChIP RXRA_breast adjOR K27-UNION 1.095  1.418  1.296    NaN    NaN
+          ChIP RXRA_breast adjOR K27-HEART 1.095  1.418  1.295    NaN    NaN
+     ChIP RXRA_other_cells adjOR K27-LIVER 1.160  1.504  1.297    NaN    NaN
+     ChIP RXRA_other_cells adjOR K27-UNION 1.160  1.505  1.298    NaN    NaN
+     ChIP RXRA_other_cells adjOR K27-HEART 1.160  1.507  1.299    NaN    NaN
+K27-LIVER: (a) lower>0: 3/4 (need 3) | (b) literature diff +0.041 (need >= -0.01) | (c) ChIP OR ratio>=1: 6/6 (need 4) -> improves: True
+K27-UNION: (a) lower>0: 1/4 (need 3) | (b) literature diff +0.025 (need >= -0.01) | (c) ChIP OR ratio>=1: 6/6 (need 4) -> improves: False
+K27-HEART: (a) lower>0: 0/4 (need 3) | (b) literature diff -0.005 (need >= -0.01) | (c) ChIP OR ratio>=1: 6/6 (need 4) -> improves: False

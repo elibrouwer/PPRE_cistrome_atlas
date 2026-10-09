@@ -1,0 +1,4 @@
+# Pipeline outputs for the 42-motif list (8 Oct 2026)
+Scripts: `R_code/results/PPRE_score_v4/pipeline42_part1.R` (per-motif FIMO summary, ChIPseeker annotation, saved hit ranges), `pipeline42_part1b.R` (summary and H3K27ac tables), `pipeline42_part2.R` (tables, gene lists, Venn, H3K27ac plot, score list, ORA), `pipeline42_part3.R` (overlap and Jaccard heatmaps), `pipeline42_part4.R` (genome coverage), `boxplots_42.R`, `export_sitecount_scores.py` (final score).
+Folder layout: `ChIPseeker_output/` (promoter annotations per motif), `hit_ranges_rds/` (all hits per motif, ranges only), `Objective1_results/` (tables and figures), `Objective1_results/Statistics_plots/` (Q-Q plots, boxplots, scatter).
+Not run here: the snRNA-seq analysis on MyDRE (list for it: `R_code/results/PPRE_score_v3/MyDRE_package/PPRE_sitecount_ranked.bed`), the motif alignment and consensus logos (Fig. 1, Supplementary Fig. 1), and the experimental-source plots (source unknown for 25 motifs).

@@ -1,0 +1,13 @@
+[   26s] mouse model fitted
+[   33s] human promoter hits 2,367,473
+[   64s] human model fitted
+[   71s] repeat intervals 3,984,234
+[   77s] hits (odd chromosomes) 1,964,750, in repeat 0.336
+                   repeat_share  top10_repeat_share  reliable  auc_all  auc_nonrepeat  auc_repeat
+motif                                                                                            
+MA0066.1                  0.285               0.264     False    0.489          0.486       0.511
+MA0066.2                  0.294               0.274     False    0.493          0.499       0.500
+PPARG_M02901_3.10         0.294               0.276     False    0.501          0.496       0.506
+RXRB_M10655_3.10          0.547               0.930     False    0.471          0.529       0.430
+median repeat share of the 25 reliable motifs: 0.296 | their median auc all / nonrepeat: 0.598 0.599
+{'MA0066.1': np.False_, 'MA0066.2': np.False_, 'PPARG_M02901_3.10': np.False_, 'RXRB_M10655_3.10': np.True_} -> repeat explanation supported: False

@@ -1,0 +1,50 @@
+[   33s] mouse model fitted
+[   46s] human promoter hits 2,367,473
+[   96s] human model fitted
+[  103s] hits near TSS 4,739,745; pairs 16,407,722
+[  104s] scored default
+[  109s] scored gate 1e-4
+[  110s] scored gate 1e-6
+[  110s] scored best hit
+[  111s] scored sum of q
+[  112s] scored window -1000..+500
+[  113s] scored window -10000..+3000
+[  114s] scored 25 reliable motifs
+[  193s] S2 PPAR-centric LODO done
+[  295s] S1 no RXR half-sites LODO done
+[  420s] reliable-25 (ref) LODO done
+             variant               heldout  n_selected  or_all42  or_selected  random_p90  beats_all  beats_p90
+     S2 PPAR-centric       PPARG_adipocyte           9     1.157        1.296       1.254       True       True
+     S2 PPAR-centric PPARG_digestive_tract           9     1.271        1.524       1.432       True       True
+     S2 PPAR-centric           PPARG_liver           9     1.252        1.450       1.404       True       True
+     S2 PPAR-centric            RXRA_liver           9     0.949        0.956       1.048       True      False
+     S2 PPAR-centric           RXRA_breast           9     1.095        1.092       1.125      False      False
+     S2 PPAR-centric      RXRA_other_cells           9     1.160        1.205       1.203       True       True
+S1 no RXR half-sites       PPARG_adipocyte          20     1.157        1.296       1.217       True       True
+S1 no RXR half-sites PPARG_digestive_tract          20     1.271        1.516       1.412       True       True
+S1 no RXR half-sites           PPARG_liver          20     1.252        1.453       1.402       True       True
+S1 no RXR half-sites            RXRA_liver          20     0.949        0.952       1.039       True      False
+S1 no RXR half-sites           RXRA_breast          20     1.095        1.110       1.145       True      False
+S1 no RXR half-sites      RXRA_other_cells          20     1.160        1.225       1.209       True       True
+   reliable-25 (ref)       PPARG_adipocyte          25     1.157        1.273       1.219       True       True
+   reliable-25 (ref) PPARG_digestive_tract          25     1.271        1.482       1.366       True       True
+   reliable-25 (ref)           PPARG_liver          25     1.252        1.445       1.407       True       True
+   reliable-25 (ref)            RXRA_liver          25     0.949        0.942       1.022      False      False
+   reliable-25 (ref)           RXRA_breast          25     1.095        1.076       1.138      False      False
+   reliable-25 (ref)      RXRA_other_cells          25     1.160        1.202       1.206       True      False
+S2 PPAR-centric: motifs 9 | (a) beats all-42 5/6, beats random p90 4/6 -> True | (b) hepatocyte lower>0 2/4 -> False | (c) literature 0.571 vs 0.585 -> False | ADOPT: False
+S1 no RXR half-sites: motifs 20 | (a) beats all-42 6/6, beats random p90 4/6 -> True | (b) hepatocyte lower>0 0/4 -> False | (c) literature 0.559 vs 0.585 -> False | ADOPT: False
+reliable-25 (ref): motifs 25 | (a) beats all-42 4/6, beats random p90 3/6 -> True | (b) hepatocyte lower>0 1/4 -> False | (c) literature 0.560 vs 0.585 -> False | ADOPT: False
+             variant  n_motifs        contrast  auc_all42  auc_variant  diff     lo    hi
+     S2 PPAR-centric         9 GSE17251 top 5%      0.535        0.562 0.027  0.000 0.053
+     S2 PPAR-centric         9 GSE17251 top 1%      0.567        0.624 0.056  0.005 0.106
+     S2 PPAR-centric         9 GSE53399 top 5%      0.547        0.568 0.021 -0.008 0.050
+     S2 PPAR-centric         9 GSE53399 top 1%      0.585        0.632 0.047 -0.013 0.101
+S1 no RXR half-sites        20 GSE17251 top 5%      0.535        0.550 0.015 -0.012 0.042
+S1 no RXR half-sites        20 GSE17251 top 1%      0.567        0.591 0.024 -0.023 0.074
+S1 no RXR half-sites        20 GSE53399 top 5%      0.547        0.568 0.020 -0.005 0.049
+S1 no RXR half-sites        20 GSE53399 top 1%      0.585        0.622 0.037 -0.018 0.092
+   reliable-25 (ref)        25 GSE17251 top 5%      0.535        0.560 0.025  0.004 0.050
+   reliable-25 (ref)        25 GSE17251 top 1%      0.567        0.580 0.012 -0.038 0.062
+   reliable-25 (ref)        25 GSE53399 top 5%      0.547        0.560 0.013 -0.012 0.034
+   reliable-25 (ref)        25 GSE53399 top 1%      0.585        0.608 0.023 -0.024 0.070

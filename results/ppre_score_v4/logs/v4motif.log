@@ -1,0 +1,35 @@
+[   24s] mouse model fitted
+[   30s] human promoter hits 2,367,473
+[   61s] human model fitted
+[   68s] hits near TSS 4,739,745; pairs 16,407,722
+[   69s] scored default
+[   73s] scored gate 1e-4
+[   74s] scored gate 1e-6
+[   74s] scored best hit
+[   75s] scored sum of q
+[   76s] scored window -1000..+500
+[   77s] scored window -10000..+3000
+[   77s] scored 25 reliable motifs
+motifs in hits: 42 | in AUC table: 42
+[   96s] held-out PPARG_adipocyte: 25 motifs, OR 1.273 vs all-42 1.157, random p90 1.204
+[  113s] held-out PPARG_digestive_tract: 25 motifs, OR 1.482 vs all-42 1.271, random p90 1.388
+[  131s] held-out PPARG_liver: 25 motifs, OR 1.445 vs all-42 1.252, random p90 1.394
+[  149s] held-out RXRA_liver: 25 motifs, OR 0.942 vs all-42 0.949, random p90 1.018
+[  166s] held-out RXRA_breast: 25 motifs, OR 1.076 vs all-42 1.095, random p90 1.143
+[  182s] held-out RXRA_other_cells: 25 motifs, OR 1.202 vs all-42 1.160, random p90 1.205
+              heldout  n_selected  or_all42  or_selected  random_mean  random_p90  beats_all  beats_p90
+      PPARG_adipocyte          25     1.157        1.273        1.164       1.204       True       True
+PPARG_digestive_tract          25     1.271        1.482        1.301       1.388       True       True
+          PPARG_liver          25     1.252        1.445        1.309       1.394       True       True
+           RXRA_liver          25     0.949        0.942        0.949       1.018      False      False
+          RXRA_breast          25     1.095        1.076        1.108       1.143      False      False
+     RXRA_other_cells          25     1.160        1.202        1.177       1.205       True      False
+       contrast  auc_all42  auc_25  diff     lo    hi
+GSE17251 top 5%      0.535   0.560 0.025  0.004 0.048
+GSE17251 top 1%      0.567   0.580 0.012 -0.037 0.062
+GSE53399 top 5%      0.547   0.560 0.013 -0.013 0.038
+GSE53399 top 1%      0.585   0.608 0.023 -0.029 0.067
+(a) held-out ChIP: beats all-42 in 4/6 (need 4), beats random p90 in 3/6 (need 3) -> True
+(b) hepatocyte lower bound > 0 in 1/4 (need 3) -> False
+(c) literature AUROC all-42 0.585, 25-motif 0.560 (need >= -0.01) -> False
+MOTIF PRIORITISATION WORKS: False

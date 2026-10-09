@@ -1,0 +1,11 @@
+test,result,detail
+Spearman width vs hits,"rho=0.16, p=0.3",n=42
+Kruskal-Wallis hits by family (PPAR / PPAR::RXR / RXR),"H=0.22, p=0.9",
+Mann-Whitney hits PPAR vs RXR,"U=158, p=0.91",medians 8.388e+05 vs 8.612e+05
+Kruskal-Wallis hits by database (CIS-BP/HOCOMOCO/JASPAR),"H=3.34, p=0.19","CIS-BP: 8.895e+05, HOCOMOCO: 1.04e+06, JASPAR: 8.354e+05"
+Kruskal-Wallis width by family (PPAR / PPAR::RXR / RXR),"H=18.81, p=8.2e-05",
+Mann-Whitney width PPAR vs RXR,"U=272, p=0.00017",medians 16 vs 14
+Kruskal-Wallis width by database (CIS-BP/HOCOMOCO/JASPAR),"H=1.95, p=0.38","CIS-BP: 15, HOCOMOCO: 14.5, JASPAR: 16"
+OLS log10 hits ~ width + family + database,R2=0.12,F-test p=0.46; width p=0.24; C(fam)[T.PPAR::RXR] p=0.69; C(fam)[T.RXR] p=0.71; C(db)[T.HOCOMOCO] p=0.77; C(db)[T.JASPAR] p=0.086
+Negative binomial hits ~ width + family + database,alpha=0.15,width p=0.016; C(fam)[T.PPAR::RXR] p=0.72; C(fam)[T.RXR] p=0.37; C(db)[T.HOCOMOCO] p=0.99; C(db)[T.JASPAR] p=0.013
+OLS width ~ family + database,R2=0.35,F-test p=0.0023; C(fam)[T.PPAR::RXR] p=0.42; C(fam)[T.RXR] p=0.0021; C(db)[T.HOCOMOCO] p=0.75; C(db)[T.JASPAR] p=0.83

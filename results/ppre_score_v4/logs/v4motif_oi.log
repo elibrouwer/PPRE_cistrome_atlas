@@ -1,0 +1,65 @@
+[   26s] mouse model fitted
+[   32s] human promoter hits 2,367,473
+[   66s] human model fitted
+[   72s] hits near TSS 4,739,745; pairs 16,407,722
+[   73s] scored default
+[   78s] scored gate 1e-4
+[   78s] scored gate 1e-6
+[   79s] scored best hit
+[   80s] scored sum of q
+[   80s] scored window -1000..+500
+[   81s] scored window -10000..+3000
+[   81s] scored 25 reliable motifs
+DR1 22 ['MA0065.1', 'MA0855.1', 'MA0856.1', 'MA1148.1', 'MA1148.2', 'MA1550.1', 'MA1550.2', 'PPARA_M10653_3.10', 'PPARD_M05793_3.10', 'PPARD_M05795_3.10', 'PPARG_M10636_3.10', 'RXRA.H13CORE.2.SM.B', 'RXRA_M05883_3.10', 'RXRA_M05884_3.10', 'RXRA_M06774_3.10', 'RXRB.H13CORE.1.SM.B', 'RXRB_M05893_3.10', 'RXRB_M05895_3.10', 'RXRG.H13CORE.1.SM.B', 'RXRG_M05827_3.10', 'RXRG_M05829_3.10', 'RXRG_M06771_3.10']
+DR1-Q 20 ['MA0855.1', 'MA0856.1', 'MA1148.1', 'MA1148.2', 'MA1550.1', 'MA1550.2', 'PPARA_M10653_3.10', 'PPARD_M05793_3.10', 'PPARD_M05795_3.10', 'PPARG_M10636_3.10', 'RXRA.H13CORE.2.SM.B', 'RXRA_M05884_3.10', 'RXRA_M06774_3.10', 'RXRB.H13CORE.1.SM.B', 'RXRB_M05893_3.10', 'RXRB_M05895_3.10', 'RXRG.H13CORE.1.SM.B', 'RXRG_M05827_3.10', 'RXRG_M05829_3.10', 'RXRG_M06771_3.10']
+DR1-NR (primary) 5 ['MA0855.1', 'MA1148.1', 'PPARA_M10653_3.10', 'RXRA_M06774_3.10', 'RXRG_M05829_3.10']
+[  105s] DR1 done
+[  123s] DR1-Q done
+[  135s] DR1-NR (primary) done
+[  382s] SOFT LODO done
+         variant               heldout  n  or_all42  or_selected  random_p90  beats_all  beats_p90
+             DR1       PPARG_adipocyte 22     1.157        1.298       1.181       True       True
+             DR1 PPARG_digestive_tract 22     1.271        1.520       1.366       True       True
+             DR1           PPARG_liver 22     1.252        1.458       1.394       True       True
+             DR1            RXRA_liver 22     0.949        0.954       1.009       True      False
+             DR1           RXRA_breast 22     1.095        1.115       1.134       True      False
+             DR1      RXRA_other_cells 22     1.160        1.226       1.204       True       True
+           DR1-Q       PPARG_adipocyte 20     1.157        1.294       1.218       True       True
+           DR1-Q PPARG_digestive_tract 20     1.271        1.499       1.412       True       True
+           DR1-Q           PPARG_liver 20     1.252        1.446       1.404       True       True
+           DR1-Q            RXRA_liver 20     0.949        0.948       1.021      False      False
+           DR1-Q           RXRA_breast 20     1.095        1.109       1.128       True      False
+           DR1-Q      RXRA_other_cells 20     1.160        1.220       1.219       True       True
+DR1-NR (primary)       PPARG_adipocyte  5     1.157        1.279       1.245       True       True
+DR1-NR (primary) PPARG_digestive_tract  5     1.271        1.454       1.410       True       True
+DR1-NR (primary)           PPARG_liver  5     1.252        1.433       1.404       True       True
+DR1-NR (primary)            RXRA_liver  5     0.949        0.951       1.029       True      False
+DR1-NR (primary)           RXRA_breast  5     1.095        1.134       1.114       True       True
+DR1-NR (primary)      RXRA_other_cells  5     1.160        1.206       1.208       True      False
+            SOFT       PPARG_adipocyte 41     1.157        1.294       1.213       True       True
+            SOFT PPARG_digestive_tract 41     1.271        1.569       1.392       True       True
+            SOFT           PPARG_liver 41     1.252        1.562       1.414       True       True
+            SOFT            RXRA_liver 41     0.949        0.964       1.015       True      False
+            SOFT           RXRA_breast 41     1.095        1.086       1.109      False      False
+            SOFT      RXRA_other_cells 40     1.160        1.270       1.229       True       True
+DR1: (a) beats all-42 6/6, random p90 4/6 -> True | (b) hepatocyte lower>0 0/4 -> False | (c) literature 0.565 vs 0.585 -> False | ADOPT: False
+DR1-Q: (a) beats all-42 5/6, random p90 4/6 -> True | (b) hepatocyte lower>0 0/4 -> False | (c) literature 0.550 vs 0.585 -> False | ADOPT: False
+DR1-NR (primary): (a) beats all-42 6/6, random p90 4/6 -> True | (b) hepatocyte lower>0 0/4 -> False | (c) literature 0.535 vs 0.585 -> False | ADOPT: False
+SOFT: (a) beats all-42 5/6, random p90 4/6 -> True | (b) hepatocyte lower>0 2/4 -> False | (c) literature 0.577 vs 0.585 -> True | ADOPT: False
+         variant        contrast  auc_all42  auc_variant  diff     lo    hi
+             DR1 GSE17251 top 5%      0.535        0.550 0.015 -0.009 0.038
+             DR1 GSE17251 top 1%      0.567        0.591 0.023 -0.028 0.073
+             DR1 GSE53399 top 5%      0.547        0.567 0.020 -0.008 0.045
+             DR1 GSE53399 top 1%      0.585        0.622 0.037 -0.025 0.092
+           DR1-Q GSE17251 top 5%      0.535        0.553 0.018 -0.009 0.046
+           DR1-Q GSE17251 top 1%      0.567        0.588 0.021 -0.030 0.072
+           DR1-Q GSE53399 top 5%      0.547        0.568 0.021 -0.006 0.048
+           DR1-Q GSE53399 top 1%      0.585        0.612 0.027 -0.027 0.081
+DR1-NR (primary) GSE17251 top 5%      0.535        0.559 0.024 -0.002 0.052
+DR1-NR (primary) GSE17251 top 1%      0.567        0.603 0.035 -0.022 0.091
+DR1-NR (primary) GSE53399 top 5%      0.547        0.571 0.024 -0.004 0.053
+DR1-NR (primary) GSE53399 top 1%      0.585        0.623 0.038 -0.022 0.094
+            SOFT GSE17251 top 5%      0.535        0.560 0.025  0.006 0.042
+            SOFT GSE17251 top 1%      0.567        0.582 0.015 -0.025 0.056
+            SOFT GSE53399 top 5%      0.547        0.565 0.018  0.001 0.039
+            SOFT GSE53399 top 1%      0.585        0.612 0.027 -0.011 0.062

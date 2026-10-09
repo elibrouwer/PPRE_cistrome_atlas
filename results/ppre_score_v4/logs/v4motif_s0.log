@@ -1,0 +1,28 @@
+[   42s] mouse model fitted
+[   50s] human promoter hits 2,367,473
+[   96s] human model fitted
+[  104s] hits near TSS 4,739,745; pairs 16,407,722
+[  105s] scored default
+[  111s] scored gate 1e-4
+[  112s] scored gate 1e-6
+[  113s] scored best hit
+[  114s] scored sum of q
+[  115s] scored window -1000..+500
+[  116s] scored window -10000..+3000
+[  116s] scored 25 reliable motifs
+half-site models removed: 14 ['MA0855.1', 'MA0856.1', 'MA1555.1', 'MA1556.1', 'RXRA.H13CORE.0.PS.A', 'RXRA_M06118_3.10', 'RXRB.H13CORE.0.P.C', 'RXRB.H13CORE.2.PS.A', 'RXRB_M05894_3.10', 'RXRB_M05896_3.10', 'RXRB_M10655_3.10', 'RXRG_M05828_3.10', 'RXRG_M05830_3.10', 'RXRG_M10638_3.10']
+S0 motifs kept: 28
+              heldout  or_all42  or_S0  random_p90  beats_all  beats_p90
+      PPARG_adipocyte     1.157  1.171       1.192       True      False
+PPARG_digestive_tract     1.271  1.294       1.364       True      False
+          PPARG_liver     1.252  1.220       1.409      False      False
+           RXRA_liver     0.949  0.911       1.028      False      False
+          RXRA_breast     1.095  1.073       1.145      False      False
+     RXRA_other_cells     1.160  1.166       1.212       True      False
+       contrast  auc_all42  auc_S0   diff     lo    hi
+GSE17251 top 5%      0.535   0.542  0.007 -0.005 0.019
+GSE17251 top 1%      0.567   0.561 -0.006 -0.028 0.015
+GSE53399 top 5%      0.547   0.551  0.003 -0.010 0.016
+GSE53399 top 1%      0.585   0.616  0.031  0.010 0.054
+cardiomyocyte GW0742 top 5%: all 42 0.560, S0 0.559, random same size mean 0.551 (5-95%: 0.521-0.566), percentile 56 -> explained by size
+RULE (a) ChIP beats all-42 3/6, random p90 0/6 -> False | (b) hepatocyte lower>0 1/4 -> False | (c) literature 0.582 vs 0.585 -> True | (d) cardiomyocyte -> True | ADOPT S0: False

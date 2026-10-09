@@ -1,0 +1,48 @@
+motifs 42 
+MA0065.1 done (1/42) 1.5 min
+MA0066.1 done (2/42) 2.6 min
+MA0066.2 done (3/42) 4.1 min
+MA0855.1 done (4/42) 5.8 min
+MA0856.1 done (5/42) 7.4 min
+MA1148.1 done (6/42) 9.2 min
+MA1148.2 done (7/42) 10.5 min
+MA1550.1 done (8/42) 11.5 min
+MA1550.2 done (9/42) 12.5 min
+MA1555.1 done (10/42) 13.5 min
+MA1556.1 done (11/42) 15.1 min
+PPARA_M10653_3.10 done (12/42) 16.9 min
+PPARD_M05793_3.10 done (13/42) 18.0 min
+PPARD_M05794_3.10 done (14/42) 18.9 min
+PPARD_M05795_3.10 done (15/42) 19.6 min
+PPARD_M05796_3.10 done (16/42) 20.1 min
+PPARG_M02901_3.10 done (17/42) 20.7 min
+PPARG_M10636_3.10 done (18/42) 21.6 min
+RXRA.H13CORE.0.PS.A done (19/42) 22.3 min
+RXRA.H13CORE.2.SM.B done (20/42) 22.8 min
+RXRA_M05883_3.10 done (21/42) 23.3 min
+RXRA_M05884_3.10 done (22/42) 23.8 min
+RXRA_M06118_3.10 done (23/42) 24.3 min
+RXRA_M06774_3.10 done (24/42) 25.0 min
+RXRA_M08962_3.10 done (25/42) 25.5 min
+RXRA_M08963_3.10 done (26/42) 26.3 min
+RXRA_M10652_3.10 done (27/42) 27.7 min
+RXRB.H13CORE.0.P.C done (28/42) 28.4 min
+RXRB.H13CORE.1.SM.B done (29/42) 28.9 min
+RXRB.H13CORE.2.PS.A done (30/42) 29.4 min
+RXRB_M05893_3.10 done (31/42) 29.9 min
+RXRB_M05894_3.10 done (32/42) 30.3 min
+RXRB_M05895_3.10 done (33/42) 30.8 min
+RXRB_M05896_3.10 done (34/42) 31.2 min
+RXRB_M10655_3.10 done (35/42) 31.7 min
+RXRG.H13CORE.1.SM.B done (36/42) 32.1 min
+RXRG_M05827_3.10 done (37/42) 32.5 min
+RXRG_M05828_3.10 done (38/42) 32.8 min
+RXRG_M05829_3.10 done (39/42) 33.3 min
+RXRG_M05830_3.10 done (40/42) 33.6 min
+RXRG_M06771_3.10 done (41/42) 33.9 min
+RXRG_M10638_3.10 done (42/42) 34.2 min
+null device 
+          1 
+null device 
+          1 
+overlap percent (off-diagonal): mean 23.6, median 13.3, max 96.7 | Jaccard: mean 13.3, median 5.0, max 93.5

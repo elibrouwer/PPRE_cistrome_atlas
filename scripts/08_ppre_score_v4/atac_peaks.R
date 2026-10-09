@@ -1,0 +1,20 @@
+# GSE178984 cardiomyocyte ATAC: per-peak GW0742 statistics and GC (DESIGN_V4.md Addendum 9).
+suppressPackageStartupMessages({library(BSgenome.Hsapiens.UCSC.hg38); library(GenomicRanges)})
+g0 <- "C:/Users/brouw/AppData/Local/Temp/claude/C--Users-brouw-OneDrive---Universiteit-Utrecht-Master-Bioinformatics-Minor-internship-R-code/f7175609-6765-498e-8602-f582703f131b/scratchpad/gate0/"
+d <- read.delim(gzfile(paste0(g0, "GSE178984_202010625_dubois_atac_normcounts.txt.gz")), check.names = FALSE, stringsAsFactors = FALSE)
+cat("peaks:", nrow(d), "\n")
+p <- do.call(rbind, strsplit(d$peak_id, "_")); chr <- paste0("chr", p[, 2]); st <- as.integer(p[, 3]); en <- as.integer(p[, 4])
+cat("chr naming sample:", head(unique(chr)), "| width median:", median(en - st), "\n")
+sm <- c("Control_1","Control_2","Control_3","LCFA_1","LCFA_2","LCFA_3","GW0742_1","GW0742_2","GW0742_3","LCFA+GW0742_1","LCFA+GW0742_2","LCFA+GW0742_3")
+y <- log2(as.matrix(d[, sm]) + 1)
+LCFA <- factor(c(rep("0", 3), rep("1", 3), rep("0", 3), rep("1", 3))); GW <- factor(c(rep("0", 6), rep("1", 6)))
+X <- model.matrix(~ LCFA + GW); fit <- lm.fit(X, t(y)); XtXi <- solve(t(X) %*% X)
+res <- t(y) - X %*% fit$coefficients; df <- nrow(X) - ncol(X); s2 <- colSums(res^2) / df
+bt <- fit$coefficients["GW1", ]; se <- sqrt(s2 * XtXi["GW1", "GW1"]); tstat <- bt / se; pv <- 2 * pt(-abs(tstat), df); fdr <- p.adjust(pv, "BH")
+cat("peaks FDR<0.05 for GW term:", sum(fdr < 0.05), "| up:", sum(fdr < 0.05 & bt > 0), "| down:", sum(fdr < 0.05 & bt < 0), "\n")
+ok <- chr %in% seqlevels(BSgenome.Hsapiens.UCSC.hg38)
+gr <- GRanges(chr[ok], IRanges(st[ok] + 1, en[ok])); seqs <- getSeq(BSgenome.Hsapiens.UCSC.hg38, gr)
+gc <- rep(NA_real_, nrow(d)); gc[ok] <- as.numeric(letterFrequency(seqs, "GC", as.prob = TRUE))
+out <- data.frame(peak_id = d$peak_id, chr = chr, start = st, end = en, annotation = d$annotation, gene = d$hgnc_symbol, gc = gc, mean_count = rowMeans(d[, sm]), lfc = bt, t = tstat, fdr = fdr)
+write.csv(out, "C:/Users/brouw/OneDrive - Universiteit Utrecht/Master Bioinformatics/Minor internship/R_code/results/PPRE_score_v4/atac_peaks_stats.csv", row.names = FALSE)
+cat("gene sanity (PDK4/CPT1A/ANGPTL4 peaks, t):\n"); print(out[out$gene %in% c("PDK4", "CPT1A", "ANGPTL4", "CPT1B"), c("gene", "annotation", "lfc", "t", "fdr")])

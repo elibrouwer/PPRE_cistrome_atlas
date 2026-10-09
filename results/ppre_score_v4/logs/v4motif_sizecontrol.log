@@ -1,0 +1,16 @@
+[   34s] mouse model fitted
+[   45s] human promoter hits 2,367,473
+[  102s] human model fitted
+[  112s] hits near TSS 4,739,745; pairs 16,407,722
+[  114s] scored default
+[  125s] scored gate 1e-4
+[  125s] scored gate 1e-6
+[  128s] scored best hit
+[  129s] scored sum of q
+[  131s] scored window -1000..+500
+[  132s] scored window -10000..+3000
+[  133s] scored 25 reliable motifs
+all 42: cardio 0.560, hepatocyte mean 0.559
+S2 PPAR-centric (9): cardio 0.520 (random mean 0.525, 5-95% 0.496-0.562, pct 55) -> explained by size | hepatocyte mean 0.596 (random mean 0.562, pct 94) -> explained by size
+S1 no RXR half-sites (20): cardio 0.525 (random mean 0.543, 5-95% 0.511-0.568, pct 27) -> explained by size | hepatocyte mean 0.583 (random mean 0.559, pct 98) -> better than size-matched
+reliable-25: cardio 0.524 (random mean 0.549, 5-95% 0.521-0.567, pct 9) -> explained by size | hepatocyte mean 0.577 (random mean 0.559, pct 97) -> better than size-matched

@@ -1,0 +1,52 @@
+[   25s] mouse model fitted
+[   31s] human promoter hits 2,367,473
+[   62s] human model fitted
+[   68s] hits near TSS 4,739,745; pairs 16,407,722
+[   69s] scored default
+[   74s] scored gate 1e-4
+[   74s] scored gate 1e-6
+[   75s] scored best hit
+[   76s] scored sum of q
+[   76s] scored window -1000..+500
+[   77s] scored window -10000..+3000
+[   78s] scored 25 reliable motifs
+variant                     default  gate 1e-4  gate 1e-6  best hit  sum of q  window -1000..+500  window -10000..+3000  25 reliable motifs
+hep GSE17251 top 5%           0.535      0.547      0.546     0.537     0.535               0.519                 0.522               0.560
+hep GSE17251 top 1%           0.567      0.572      0.560     0.506     0.568               0.531                 0.548               0.580
+hep GSE53399 top 5%           0.547      0.557      0.534     0.531     0.547               0.538                 0.544               0.560
+hep GSE53399 top 1%           0.585      0.596      0.558     0.569     0.584               0.570                 0.570               0.608
+literature                    0.585      0.623      0.547     0.557     0.585               0.601                 0.574               0.560
+ChIP PPARG_adipocyte          1.109      1.115      1.055     1.119     1.108               1.078                 1.146               1.241
+ChIP PPARG_digestive_tract    1.271      1.259      1.244     1.202     1.268               1.221                 1.277               1.482
+ChIP PPARG_liver              1.252      1.207      1.173     1.189     1.251               1.215                 1.297               1.445
+ChIP RXRA_liver               0.949      0.905      0.917     0.985     0.948               0.966                 1.016               0.942
+ChIP RXRA_breast              1.095      1.079      1.076     1.082     1.094               1.062                 1.111               1.076
+ChIP RXRA_other_cells         1.160      1.125      1.110     1.179     1.157               1.169                 1.144               1.202
+spearman_vs_default           1.000      0.869      0.599     0.615     1.000               0.793                 0.957               0.615
+STABLE? gate 1e-4: spearman 0.869, max |dAUROC| 0.012 -> True
+STABLE? gate 1e-6: spearman 0.599, max |dAUROC| 0.027 -> False
+STABLE? best hit: spearman 0.615, max |dAUROC| 0.062 -> False
+STABLE? sum of q: spearman 1.000, max |dAUROC| 0.001 -> True
+STABLE? window -1000..+500: spearman 0.793, max |dAUROC| 0.036 -> False
+STABLE? window -10000..+3000: spearman 0.957, max |dAUROC| 0.019 -> True
+STABLE? 25 reliable motifs: spearman 0.615, max |dAUROC| 0.025 -> False
+INTERVALS: median width 74.0 pct pts; share wider than 30: 0.941; top-2000 genes staying in top 2000 in >=80% draws: 0.210
+genes with zero loci: 231 | interval width among genes with >=3 loci: 74.0
+LEFTOVER CpG obs/exp: rho = -0.182
+LEFTOVER CpG island fraction: rho = -0.141
+LEFTOVER gene density (TSS within 50 kb): rho = -0.004
+flagged: ['CpG obs/exp', 'CpG island fraction']
+                             TF-A  TF-A+   diff
+hep GSE17251 top 5%         0.535  0.529 -0.006
+hep GSE17251 top 1%         0.567  0.548 -0.020
+hep GSE53399 top 5%         0.547  0.537 -0.010
+hep GSE53399 top 1%         0.585  0.574 -0.011
+literature                  0.585  0.566 -0.019
+ChIP PPARG_adipocyte        1.109  1.140  0.031
+ChIP PPARG_digestive_tract  1.271  1.259 -0.012
+ChIP PPARG_liver            1.252  1.253  0.000
+ChIP RXRA_liver             0.949  1.015  0.066
+ChIP RXRA_breast            1.095  1.117  0.023
+ChIP RXRA_other_cells       1.160  1.197  0.037
+TF-A+ adopted? max hepatocyte drop -0.020 (limit -0.01), literature diff -0.019 (limit -0.01) -> False
+rho after extra correction: {'CpG obs/exp': np.float64(-0.049), 'CpG island fraction': np.float64(-0.018)}
