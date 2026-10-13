@@ -1,0 +1,26 @@
+motif,CIS-BP_Label,EvidenceType,Study,BestMatch_Source,BestMatch_File,Correlation,Verdict
+PPARA_M10653_3.10,PPARA_HUMAN.H11MO.0.B,HOCOMOCO-style (Misc),Kulakovskiy et al. 2013,HOCOMOCO,PPARA.H13CORE.0.P.B,0.988,Very similar (likely same underlying data/version diff)
+PPARD_M05793_3.10,PPARD_eDBD_HT-SELEX_1,SELEX,Yin et al. 2017,JASPAR,MA1550.2,1.0,IDENTICAL to existing file
+PPARD_M05794_3.10,PPARD_eDBD_HT-SELEX_2,SELEX,Yin et al. 2017,JASPAR,MA1550.2,0.388,NEW / not represented in current set
+PPARD_M05795_3.10,PPARD_eDBD_Methyl-HT-SELEX_1,SELEX,Yin et al. 2017,JASPAR,MA1550.2,0.985,Very similar (likely same underlying data/version diff)
+PPARD_M05796_3.10,PPARD_eDBD_Methyl-HT-SELEX_2,SELEX,Yin et al. 2017,JASPAR,MA1550.2,0.336,NEW / not represented in current set
+PPARG_M02901_3.10,MA0066.2 (=JASPAR),SELEX,Mathelier et al. 2014,JASPAR,MA0066.2,1.0,IDENTICAL to existing file
+PPARG_M10636_3.10,PPARG_HUMAN.H11MO.0.A,HOCOMOCO-style (Misc),Kulakovskiy et al. 2013,HOCOMOCO,PPARG.H13CORE.0.P.B,0.981,Very similar (likely same underlying data/version diff)
+RXRA_M05883_3.10,RXRA_eDBD_HT-SELEX,SELEX,Yin et al. 2017,HOCOMOCO,RXRA.H13CORE.2.SM.B,0.979,Very similar (likely same underlying data/version diff)
+RXRA_M05884_3.10,RXRA_eDBD_Methyl-HT-SELEX,SELEX,Yin et al. 2017,HOCOMOCO,RXRA.H13CORE.0.PS.A,0.99,Very similar (likely same underlying data/version diff)
+RXRA_M06118_3.10,RXRA.MEXtop1.GHTS,GHT-SELEX,Vorontsov et al. 2025,HOCOMOCO,RXRA.H13CORE.2.SM.B,0.981,Very similar (likely same underlying data/version diff)
+RXRA_M06774_3.10,RXRa,SMiLE-seq,Isakova et al. 2017,HOCOMOCO,RXRA.H13CORE.2.SM.B,0.974,Very similar (likely same underlying data/version diff)
+RXRA_M08962_3.10,H1-hESC_RXRA_HudsonAlpha,ChIP-seq,Gerstein et al. 2012,HOCOMOCO,RXRA.H13CORE.2.SM.B,0.993,Very similar (likely same underlying data/version diff)
+RXRA_M08963_3.10,HepG2_RXRA_HudsonAlpha,ChIP-seq,Gerstein et al. 2012,HOCOMOCO,RXRA.H13CORE.0.PS.A,0.977,Very similar (likely same underlying data/version diff)
+RXRA_M10652_3.10,RXRA_HUMAN.H11MO.0.A,HOCOMOCO-style (Misc),Kulakovskiy et al. 2013,HOCOMOCO,RXRA.H13CORE.0.PS.A,0.967,Very similar (likely same underlying data/version diff)
+RXRB_M05893_3.10,RXRB_eDBD_HT-SELEX_1,SELEX,Yin et al. 2017,JASPAR,MA0855.1,0.991,Very similar (likely same underlying data/version diff)
+RXRB_M05894_3.10,RXRB_eDBD_HT-SELEX_2,SELEX,Yin et al. 2017,JASPAR,MA1555.1,0.969,Very similar (likely same underlying data/version diff)
+RXRB_M05895_3.10,RXRB_eDBD_Methyl-HT-SELEX_1,SELEX,Yin et al. 2017,HOCOMOCO,RXRB.H13CORE.1.SM.B,0.992,Very similar (likely same underlying data/version diff)
+RXRB_M05896_3.10,RXRB_eDBD_Methyl-HT-SELEX_2,SELEX,Yin et al. 2017,JASPAR,MA1555.1,0.925,Very similar (likely same underlying data/version diff)
+RXRB_M10655_3.10,RXRB_HUMAN.H11MO.0.C,HOCOMOCO-style (Misc),Kulakovskiy et al. 2013,HOCOMOCO,RXRB.H13CORE.2.PS.A,0.839,Related but distinct PWM
+RXRG_M05827_3.10,RXRG_FL_HT-SELEX_1,SELEX,Yin et al. 2017,HOCOMOCO,RXRG.H13CORE.1.SM.B,0.991,Very similar (likely same underlying data/version diff)
+RXRG_M05828_3.10,RXRG_FL_HT-SELEX_2,SELEX,Yin et al. 2017,JASPAR,MA1556.1,1.0,IDENTICAL to existing file
+RXRG_M05829_3.10,RXRG_FL_Methyl-HT-SELEX_1,SELEX,Yin et al. 2017,HOCOMOCO,RXRG.H13CORE.1.SM.B,0.96,Very similar (likely same underlying data/version diff)
+RXRG_M05830_3.10,RXRG_FL_Methyl-HT-SELEX_2,SELEX,Yin et al. 2017,JASPAR,MA1556.1,0.982,Very similar (likely same underlying data/version diff)
+RXRG_M06771_3.10,RXRg,SMiLE-seq,Isakova et al. 2017,HOCOMOCO,RXRG.H13CORE.1.SM.B,0.959,Very similar (likely same underlying data/version diff)
+RXRG_M10638_3.10,RXRG_HUMAN.H11MO.0.B,HOCOMOCO-style (Misc),Kulakovskiy et al. 2013,JASPAR,MA0856.1,0.98,Very similar (likely same underlying data/version diff)
